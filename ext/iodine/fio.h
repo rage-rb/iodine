@@ -1162,6 +1162,14 @@ size_t fio_local_addr(char *dest, size_t limit);
  */
 ssize_t fio_read(intptr_t uuid, void *buffer, size_t count);
 
+/**
+ * This is a complete copy of `fio_read` except that it doesn't attempt to force close the
+ * socker on error.
+ *
+ * The method is currently used by the fiber scheduler.
+ */
+ssize_t fio_read_unsafe(intptr_t uuid, void *buffer, size_t count);
+
 /** The following structure is used for `fio_write2_fn` function arguments. */
 typedef struct {
   union {

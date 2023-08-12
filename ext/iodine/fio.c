@@ -3492,6 +3492,42 @@ retry_int:
 }
 
 /**
+ * This is a complete copy of `fio_read` except that it doesn't attempt to force close the
+ * socker on error.
+ *
+ * The method is currently used by the fiber scheduler.
+ */
+ssize_t fio_read_unsafe(intptr_t uuid, void *buffer, size_t count) {
+  if (!uuid_is_valid(uuid) || !uuid_data(uuid).open) {
+    errno = EBADF;
+    return -1;
+  }
+  if (count == 0)
+    return 0;
+  fio_lock(&uuid_data(uuid).sock_lock);
+  ssize_t (*rw_read)(intptr_t, void *, void *, size_t) =
+      uuid_data(uuid).rw_hooks->read;
+  void *udata = uuid_data(uuid).rw_udata;
+  fio_unlock(&uuid_data(uuid).sock_lock);
+  int old_errno = errno;
+  ssize_t ret;
+retry_int:
+  ret = rw_read(uuid, udata, buffer, count);
+  if (ret > 0) {
+    fio_touch(uuid);
+    return ret;
+  }
+  if (ret < 0 && errno == EINTR)
+    goto retry_int;
+  if (ret < 0 &&
+      (errno == EWOULDBLOCK || errno == EAGAIN || errno == ENOTCONN)) {
+    errno = old_errno;
+    return 0;
+  }
+  return -1;
+}
+
+/**
  * `fio_write2_fn` is the actual function behind the macro `fio_write2`.
  */
 ssize_t fio_write2_fn(intptr_t uuid, fio_write_args_s options) {
