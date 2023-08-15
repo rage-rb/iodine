@@ -4023,6 +4023,71 @@ invalid_uuid_unlocked:
   return -1;
 }
 
+static int fio_watch__internal(void *uuid_, void *protocol_) {
+  intptr_t uuid = (intptr_t)uuid_;
+  fio_protocol_s *protocol = (fio_protocol_s *)protocol_;
+  if (protocol) {
+    if (!protocol->on_close) {
+      protocol->on_close = mock_on_ev;
+    }
+    if (!protocol->on_data) {
+      protocol->on_data = mock_on_data;
+    }
+    if (!protocol->on_ready) {
+      protocol->on_ready = mock_on_ev;
+    }
+    if (!protocol->ping) {
+      protocol->ping = mock_ping;
+    }
+    if (!protocol->on_shutdown) {
+      protocol->on_shutdown = mock_on_shutdown;
+    }
+    prt_meta(protocol) = (protocol_metadata_s){.rsv = 0};
+  }
+  if (!uuid_is_valid(uuid))
+    goto invalid_uuid_unlocked;
+  fio_lock(&uuid_data(uuid).protocol_lock);
+  if (!uuid_is_valid(uuid)) {
+    goto invalid_uuid;
+  }
+
+  // if (!protocol) {
+  //   fio_protocol_s *old_pr = uuid_data(uuid).protocol;
+  //   fio_force_close_in_poll(uuid);
+  //   fio_unlock(&uuid_data(uuid).protocol_lock);
+  //   return 0;
+  // }
+
+  uuid_data(uuid).open = 1;
+  uuid_data(uuid).protocol = protocol;
+  touchfd(fio_uuid2fd(uuid));
+  fio_unlock(&uuid_data(uuid).protocol_lock);
+
+  fio_poll_add(fio_uuid2fd(uuid));
+  return 0;
+
+invalid_uuid:
+  fio_unlock(&uuid_data(uuid).protocol_lock);
+invalid_uuid_unlocked:
+  // FIO_LOG_DEBUG("fio_watch failed for invalid uuid %p", (void *)uuid);
+  if (protocol)
+    fio_defer_push_task(deferred_on_close, (void *)uuid, protocol);
+  if (uuid == -1)
+    errno = EBADF;
+  else
+    errno = ENOTCONN;
+  return -1;
+}
+
+/**
+ * Attaches a protocol object to a socket UUID.
+ * Intended to be used by the fiber scheduler.
+ * Returns -1 on error and 0 on success.
+ */
+void fio_watch(intptr_t uuid, fio_protocol_s *protocol) {
+  fio_watch__internal((void *)uuid, protocol);
+}
+
 /**
  * Attaches (or updates) a protocol object to a socket UUID.
  * Returns -1 on error and 0 on success.

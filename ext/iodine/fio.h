@@ -629,6 +629,15 @@ struct fio_protocol_s {
 void fio_attach(intptr_t uuid, fio_protocol_s *protocol);
 
 /**
+ * Attaches a protocol object to a socket UUID.
+ *
+ * Intended to be used by the fiber scheduler.
+ *
+ * Returns -1 on error and 0 on success.
+ */
+void fio_watch(intptr_t uuid, fio_protocol_s *protocol);
+
+/**
  * Attaches (or updates) a protocol object to a file descriptor (fd).
  *
  * The new protocol object can be NULL, which will detach ("hijack"), the
