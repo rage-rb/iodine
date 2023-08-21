@@ -1427,4 +1427,7 @@ void Init_iodine_ext(void) {
 
   // initialize Pub/Sub extension (for Engines)
   iodine_pubsub_init();
+
+  // initialize scheduling helpers
+  iodine_scheduler_initialize();
 }

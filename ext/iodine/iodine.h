@@ -47,6 +47,7 @@ typedef struct {
 #include "iodine_store.h"
 #include "iodine_tcp.h"
 #include "iodine_tls.h"
+#include "scheduler.h"
 
 /* *****************************************************************************
 Constants
