@@ -118,6 +118,12 @@ typedef struct {
   FIOBJ body;
   /** an opaque user data pointer, to be used BEFORE calling `http_defer`. */
   void *udata;
+
+  /**
+   * in case the request needs to be paused, Iodine will subscribe to a channel with this name;
+   * once Ruby finishes processing, it will publish to this channel telling Iodine the request can be resumed.
+   */
+  FIOBJ request_id;
 } http_s;
 
 /**

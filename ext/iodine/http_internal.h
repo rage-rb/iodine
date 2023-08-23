@@ -7,6 +7,8 @@ Feel free to copy, use and enjoy according to the license provided.
 #ifndef H_HTTP_INTERNAL_H
 #define H_HTTP_INTERNAL_H
 
+#include "fiobj_str.h"
+#include "fiobject.h"
 #include <fio.h>
 /* subscription lists have a long lifetime */
 #define FIO_FORCE_MALLOC_TMP 1
@@ -94,6 +96,10 @@ HTTP request/response object management
 
 static inline void http_s_new(http_s *h, http_fio_protocol_s *owner,
                               http_vtable_s *vtbl) {
+  FIOBJ request_id = fiobj_str_buf(14);
+  fiobj_str_write(request_id, "req:", 4);
+  fiobj_str_write_i(request_id, (uint32_t)fio_rand64());
+
   *h = (http_s){
       .private_data =
           {
@@ -104,6 +110,7 @@ static inline void http_s_new(http_s *h, http_fio_protocol_s *owner,
       .headers = fiobj_hash_new(),
       .received_at = fio_last_tick(),
       .status = 200,
+      .request_id = request_id,
   };
 }
 
@@ -121,6 +128,7 @@ static inline void http_s_destroy(http_s *h, uint8_t log) {
   fiobj_free(h->cookies);
   fiobj_free(h->body);
   fiobj_free(h->params);
+  fiobj_free(h->request_id);
 
   *h = (http_s){
     .private_data.vtbl = h->private_data.vtbl,
