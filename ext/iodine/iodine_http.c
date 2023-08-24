@@ -100,6 +100,7 @@ rack_declare(XSENDFILE);             // for X-Sendfile support
 rack_declare(XSENDFILE_TYPE);        // for X-Sendfile support
 rack_declare(XSENDFILE_TYPE_HEADER); // for X-Sendfile support
 rack_declare(CONTENT_LENGTH_HEADER); // for X-Sendfile support
+rack_declare(IODINE_REQUEST_ID);
 
 /* used internally to handle requests */
 typedef struct {
@@ -458,6 +459,9 @@ static inline VALUE copy2env(iodine_http_request_handle_s *handle) {
     } else {
       /* no TLS, no forwarding, assume `http`, which is the default */
     }
+  }
+  {
+    rb_hash_aset(env, IODINE_REQUEST_ID, rb_str_new_cstr(fiobj_obj2cstr(handle->h->request_id).data));
   }
 
   /* add all remaining headers */
@@ -881,6 +885,7 @@ static void initialize_env_template(void) {
   rb_hash_aset(env_template_no_upgrade, REQUEST_METHOD, QUERY_STRING);
   rb_hash_aset(env_template_no_upgrade, SERVER_NAME, QUERY_STRING);
   rb_hash_aset(env_template_no_upgrade, SERVER_PROTOCOL, QUERY_STRING);
+  rb_hash_aset(env_template_no_upgrade, IODINE_REQUEST_ID, QUERY_STRING);
 
   /* WebSocket upgrade support */
   env_template_websockets = rb_hash_dup(env_template_no_upgrade);
@@ -1138,6 +1143,8 @@ void iodine_init_http(void) {
   rack_autoset(HTTP_ACCEPT_LANGUAGE);
   rack_autoset(HTTP_CONNECTION);
   rack_autoset(HTTP_HOST);
+
+  rack_autoset(IODINE_REQUEST_ID);
 
   rack_set(HTTP_SCHEME, "http");
   rack_set(HTTPS_SCHEME, "https");
