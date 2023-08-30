@@ -703,13 +703,6 @@ error:
 /* *****************************************************************************
 Pause / Resume
 ***************************************************************************** */
-struct http_pause_handle_s {
-  uintptr_t uuid;
-  http_s *h;
-  void *udata;
-  void (*task)(http_s *);
-  void (*fallback)(void *);
-};
 
 /** Returns the `udata` associated with the paused opaque handle */
 void *http_paused_udata_get(http_pause_handle_s *http) { return http->udata; }

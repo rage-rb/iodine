@@ -9,6 +9,7 @@ Feel free to copy, use and enjoy according to the license provided.
 
 #include "fiobj_str.h"
 #include "fiobject.h"
+#include "iodine_store.h"
 #include <fio.h>
 /* subscription lists have a long lifetime */
 #define FIO_FORCE_MALLOC_TMP 1
@@ -129,6 +130,8 @@ static inline void http_s_destroy(http_s *h, uint8_t log) {
   fiobj_free(h->body);
   fiobj_free(h->params);
   fiobj_free(h->request_id);
+
+  IodineStore.remove((VALUE)h->fiber);
 
   *h = (http_s){
     .private_data.vtbl = h->private_data.vtbl,

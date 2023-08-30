@@ -119,6 +119,9 @@ typedef struct {
   /** an opaque user data pointer, to be used BEFORE calling `http_defer`. */
   void *udata;
 
+  /** in case the request was paused, this will hold a Ruby fiber, that was scheduled during the request. */
+  void *fiber;
+
   /**
    * in case the request needs to be paused, Iodine will subscribe to a channel with this name;
    * once Ruby finishes processing, it will publish to this channel telling Iodine the request can be resumed.
@@ -269,6 +272,14 @@ int http_push_file(http_s *h, FIOBJ filename, FIOBJ mime_type);
 /* *****************************************************************************
 HTTP evented API (pause / resume HTTp handling)
 ***************************************************************************** */
+typedef struct http_pause_handle_s http_pause_handle_s;
+struct http_pause_handle_s {
+  uintptr_t uuid;
+  http_s *h;
+  void *udata;
+  void (*task)(http_s *);
+  void (*fallback)(void *);
+};
 
 typedef struct http_pause_handle_s http_pause_handle_s;
 /**
