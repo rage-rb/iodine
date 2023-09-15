@@ -4,14 +4,14 @@ $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
 require 'iodine/version'
 
 Gem::Specification.new do |spec|
-  spec.name          = 'iodine'
+  spec.name          = 'rage-iodine'
   spec.version       = Iodine::VERSION
   spec.authors       = ['Boaz Segev']
   spec.email         = ['bo@plezi.io']
 
   spec.summary       = 'iodine - a fast HTTP / Websocket Server with Pub/Sub support, optimized for Ruby MRI on Linux / BSD / Windows'
   spec.description   = 'A fast HTTP / Websocket Server with built-in Pub/Sub support (with or without Redis), static file support and many other features, optimized for Ruby MRI on Linux / BSD / macOS / Windows'
-  spec.homepage      = 'https://github.com/boazsegev/iodine'
+  spec.homepage      = 'https://github.com/rage-rb/iodine'
   spec.license       = 'MIT'
 
   # Prevent pushing this gem to RubyGems.org by setting 'allowed_push_host', or
