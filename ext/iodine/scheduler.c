@@ -29,14 +29,19 @@ typedef struct {
   VALUE block;
 } scheduler_protocol_s;
 
-static void iodine_scheduler_perform(intptr_t uuid, fio_protocol_s *fio_protocol) {
+
+static void iodine_scheduler_task_close(intptr_t uuid, fio_protocol_s *fio_protocol) {
   scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
-  VALUE block = protocol->block;
 
-  IodineCaller.call(block, call_id);
-
-  IodineStore.remove(block);
+  IodineStore.remove(protocol->block);
   fio_free(protocol);
+
+  (void)uuid;
+}
+
+static void iodine_scheduler_task_perform(intptr_t uuid, fio_protocol_s *fio_protocol) {
+  scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
+  IodineCaller.call(protocol->block, call_id);
 
   (void)uuid;
 }
@@ -61,25 +66,25 @@ static VALUE iodine_scheduler_attach(VALUE self, VALUE r_fd, VALUE r_waittype, V
 
   if ((waittype & ATTACH_ON_READ_READY_CALLBACK) && (waittype & ATTACH_ON_WRITE_READY_CALLBACK)) {
     *protocol = (scheduler_protocol_s){
-        .p.on_data = iodine_scheduler_perform,
-        .p.on_ready = iodine_scheduler_perform,
-        .p.on_close = noop,
+        .p.on_data = iodine_scheduler_task_perform,
+        .p.on_ready = iodine_scheduler_task_perform,
+        .p.on_close = iodine_scheduler_task_close,
         .p.ping = noop,
         .block = block,
     };
   } else if (waittype & ATTACH_ON_READ_READY_CALLBACK) {
     *protocol = (scheduler_protocol_s){
-        .p.on_data = iodine_scheduler_perform,
+        .p.on_data = iodine_scheduler_task_perform,
         .p.on_ready = noop,
-        .p.on_close = noop,
+        .p.on_close = iodine_scheduler_task_close,
         .p.ping = noop,
         .block = block,
     };
   } else if (waittype & ATTACH_ON_WRITE_READY_CALLBACK) {
     *protocol = (scheduler_protocol_s){
         .p.on_data = noop,
-        .p.on_ready = iodine_scheduler_perform,
-        .p.on_close = noop,
+        .p.on_ready = iodine_scheduler_task_perform,
+        .p.on_close = iodine_scheduler_task_close,
         .p.ping = noop,
         .block = block,
     };

@@ -4051,17 +4051,16 @@ static int fio_watch__internal(void *uuid_, void *protocol_) {
     goto invalid_uuid;
   }
 
-  // if (!protocol) {
-  //   fio_protocol_s *old_pr = uuid_data(uuid).protocol;
-  //   fio_force_close_in_poll(uuid);
-  //   fio_unlock(&uuid_data(uuid).protocol_lock);
-  //   return 0;
-  // }
-
+  fio_protocol_s *old_pr = uuid_data(uuid).protocol;
   uuid_data(uuid).open = 1;
   uuid_data(uuid).protocol = protocol;
   touchfd(fio_uuid2fd(uuid));
   fio_unlock(&uuid_data(uuid).protocol_lock);
+
+  if (old_pr) {
+    /* close old protocol */
+    fio_defer_push_task(deferred_on_close, (void *)uuid, old_pr);
+  }
 
   fio_poll_add(fio_uuid2fd(uuid));
   return 0;
