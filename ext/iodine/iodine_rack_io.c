@@ -270,4 +270,5 @@ struct IodineRackIO IodineRackIO = {
     .create = new_rack_io,
     .close = close_rack_io,
     .init = init_rack_io,
+    .get_handle = get_handle,
 };

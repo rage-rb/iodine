@@ -1,5 +1,6 @@
 require 'stringio' # Used internally as a default RackIO
 require 'socket'  # TCPSocket is used internally for Hijack support
+require 'tempfile' # Used to generate temporary files when parsing multipart/form-data
 # require 'openssl' # For SSL/TLS support using OpenSSL
 
 require_relative './iodine/version'

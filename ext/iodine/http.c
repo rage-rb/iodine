@@ -19,6 +19,7 @@ Feel free to copy, use and enjoy according to the license provided.
 #include <unistd.h>
 
 #include <pthread.h>
+#include <ruby/io.h>
 
 #ifndef HAVE_TM_TM_ZONE
 #if defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) ||     \
@@ -60,6 +61,13 @@ fio_tls_alpn_add(void *tls, const char *protocol_name,
 }
 #pragma weak fio_tls_alpn_add
 #endif
+
+static VALUE cTempfile;
+static VALUE tempfile_args;
+static VALUE cUploadedFile;
+static ID create_id;
+static ID path_id;
+static rb_encoding *IodineBinaryEncoding;
 
 /* *****************************************************************************
 Small Helpers
@@ -1797,10 +1805,172 @@ typedef struct {
   size_t pos;
   size_t partial_offset;
   size_t partial_length;
-  FIOBJ partial_name;
+  VALUE partial_name;
+  int partial_fd;
+  VALUE partial_tempfile;
+  VALUE params;
 } http_fio_mime_s;
 
 #define http_mime_parser2fio(parser) ((http_fio_mime_s *)(parser))
+
+/** Parse a parameter key and add it to the `params` hash. Check `parse_nested_query_internal` for reference. */
+static void add_to_params(VALUE params, char *key, size_t key_len, VALUE value) {
+  char *pos;
+  if (key_len > 1) {
+    pos = memchr(key + 1, '[', key_len - 1);
+  }
+
+  if (!pos) {
+    VALUE k = ID2SYM(rb_intern2(key, key_len));
+    rb_hash_aset(params, k, value);
+  } else {
+    VALUE arr = Qnil, hsh = Qnil, hsh_key = Qnil;
+    VALUE k = ID2SYM(rb_intern2(key, pos - key));
+    char *k_pos, *end = key + key_len;
+    uint8_t depth = 0;
+
+    while (pos < end) {
+      if (depth++ == 5) {
+        rb_raise(rb_eRuntimeError, "Params too deep");
+      }
+
+      if (*pos == '[' && *(pos + 1) == ']') { // array
+        if (arr != Qnil) {
+          VALUE tmp = rb_ary_new();
+          rb_ary_push(arr, tmp);
+          arr = tmp;
+        } else if (hsh != Qnil) {
+          arr = rb_hash_aref(hsh, hsh_key);
+          if (arr == Qnil) {
+            arr = rb_ary_new();
+            rb_hash_aset(hsh, hsh_key, arr);
+          } else {
+            Check_Type(arr, T_ARRAY);
+          }
+          hsh = hsh_key = Qnil;
+        } else {
+          VALUE tmp = rb_hash_aref(params, k);
+          if (tmp != Qnil) {
+            Check_Type(tmp, T_ARRAY);
+            arr = tmp;
+          } else {
+            arr = rb_ary_new();
+            rb_hash_aset(params, k, arr);
+          }
+        }
+
+        pos += 2;
+
+      } else if (*pos == '[' && *(pos + 1) != ']') { // hash
+        if (pos + 2 < end) {
+          k_pos = memchr(pos + 2, ']', end - pos - 2);
+        } else {
+          k_pos = NULL;
+        }
+
+        if (!k_pos) {
+          rb_raise(rb_eRuntimeError, "Bad params");
+        }
+
+        VALUE prev_hsh_key = hsh_key;
+        hsh_key = ID2SYM(rb_intern2(pos + 1, k_pos - pos - 1));
+
+        if (hsh != Qnil) {
+          VALUE existing = rb_hash_aref(hsh, prev_hsh_key);
+          if (existing != Qnil) {
+            Check_Type(existing, T_HASH);
+            hsh = existing;
+          } else {
+            VALUE tmp = rb_hash_new();
+            rb_hash_aset(hsh, prev_hsh_key, tmp);
+            hsh = tmp;
+          }
+        } else if (arr != Qnil) {
+          VALUE nested_val = Qnil;
+          if (RARRAY_LEN(arr) != 0) {
+            VALUE tmp = rb_ary_entry(arr, -1);
+            Check_Type(tmp, T_HASH);
+            nested_val = rb_hash_aref(tmp, hsh_key);
+          }
+
+          if (RB_TYPE_P(nested_val, T_HASH)) {
+            char *n_pos_start = k_pos + 1, *n_pos_end = k_pos + 1;
+
+            while (nested_val != Qnil && *n_pos_start == '[' && *(n_pos_start + 1) != ']' && *n_pos_end != '&' && *n_pos_end != '=' && n_pos_end < end) {
+              n_pos_end++;
+
+              if (*n_pos_end == ']') {
+                VALUE nested_key = ID2SYM(rb_intern2(n_pos_start + 1, n_pos_end - n_pos_start - 1));
+                Check_Type(nested_val, T_HASH);
+                nested_val = rb_hash_aref(nested_val, nested_key);
+                n_pos_start = ++n_pos_end;
+              }
+            }
+          }
+
+          if (RARRAY_LEN(arr) == 0 || nested_val != Qnil) {
+            hsh = rb_hash_new();
+            rb_ary_push(arr, hsh);
+          } else {
+            hsh = rb_ary_entry(arr, -1);
+            if (hsh != Qnil) {
+              Check_Type(hsh, T_HASH);
+            }
+          }
+
+          arr = Qnil;
+        } else {
+          VALUE tmp = rb_hash_aref(params, k);
+          if (tmp != Qnil) {
+            Check_Type(tmp, T_HASH);
+            hsh = tmp;
+          } else {
+            hsh = rb_hash_new();
+            rb_hash_aset(params, k, hsh);
+          }
+        }
+
+        pos = k_pos + 1;
+
+      } else {
+        pos++;
+      }
+    }
+
+    if (arr != Qnil) {
+      rb_ary_push(arr, value);
+    } else {
+      rb_hash_aset(hsh, hsh_key, value);
+    }
+  }
+}
+
+static inline void cleanup_temp_file(void *r_path) {
+  char *path = StringValueCStr(r_path);
+  IodineStore.remove((VALUE)r_path);
+  unlink(path);
+}
+
+static VALUE create_temp_file(http_mime_parser_s *parser, char **path) {
+  VALUE tempfile = rb_funcallv_kw(cTempfile, create_id, 1, &tempfile_args, RB_PASS_KEYWORDS);
+
+  VALUE r_path = rb_funcall2(tempfile, path_id, 0, NULL);
+  IodineStore.add(r_path);
+  *path = StringValueCStr(r_path);
+
+  http_s *h = http_mime_parser2fio(parser)->h;
+  http_fio_protocol_s *p = (http_fio_protocol_s *)h->private_data.flag;
+  fio_uuid_link(p->uuid, (void *)r_path, cleanup_temp_file); // schedule file deletion
+  
+  return tempfile;
+}
+
+static VALUE build_file_value(VALUE file, char *filename, size_t filename_len, char *mimetype, size_t mimetype_len) {
+  VALUE args[3] = { file, rb_enc_str_new(filename, filename_len, IodineBinaryEncoding), rb_enc_str_new(mimetype, mimetype_len, IodineBinaryEncoding) };
+  VALUE uploaded_file = rb_class_new_instance(3, args, cUploadedFile);
+
+  return uploaded_file;
+}
 
 /** Called when all the data is available at once. */
 static void http_mime_parser_on_data(http_mime_parser_s *parser, void *name,
@@ -1808,94 +1978,89 @@ static void http_mime_parser_on_data(http_mime_parser_s *parser, void *name,
                                      size_t filename_len, void *mimetype,
                                      size_t mimetype_len, void *value,
                                      size_t value_len) {
+  // for regular values - just add them to params
   if (!filename_len) {
-    http_add2hash(http_mime_parser2fio(parser)->h->params, name, name_len,
-                  value, value_len, 0);
+    VALUE r_value = rb_enc_str_new(value, value_len, IodineBinaryEncoding);
+    add_to_params(http_mime_parser2fio(parser)->params, name, name_len, r_value);
     return;
   }
-  FIOBJ n = fiobj_str_new(name, name_len);
-  fiobj_str_write(n, "[data]", 6);
-  fio_str_info_s tmp = fiobj_obj2cstr(n);
-  http_add2hash(http_mime_parser2fio(parser)->h->params, tmp.data, tmp.len,
-                value, value_len, 0);
-  fiobj_str_resize(n, name_len);
-  fiobj_str_write(n, "[name]", 6);
-  tmp = fiobj_obj2cstr(n);
-  http_add2hash(http_mime_parser2fio(parser)->h->params, tmp.data, tmp.len,
-                filename, filename_len, 0);
-  if (mimetype_len) {
-    fiobj_str_resize(n, name_len);
-    fiobj_str_write(n, "[type]", 6);
-    tmp = fiobj_obj2cstr(n);
-    http_add2hash(http_mime_parser2fio(parser)->h->params, tmp.data, tmp.len,
-                  mimetype, mimetype_len, 0);
-  }
-  fiobj_free(n);
+
+  // write file data into a temporary file
+  char* path;
+  VALUE r_tempfile = create_temp_file(parser, &path);
+
+  int file = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+  write(file, value, value_len);
+  close(file);
+
+  VALUE r_value = build_file_value(r_tempfile, filename, filename_len, mimetype, mimetype_len);
+  add_to_params(http_mime_parser2fio(parser)->params, name, name_len, r_value);
 }
 
 /** Called when the data didn't fit in the buffer. Data will be streamed. */
 static void http_mime_parser_on_partial_start(
     http_mime_parser_s *parser, void *name, size_t name_len, void *filename,
     size_t filename_len, void *mimetype, size_t mimetype_len) {
-  http_mime_parser2fio(parser)->partial_length = 0;
-  http_mime_parser2fio(parser)->partial_offset = 0;
-  http_mime_parser2fio(parser)->partial_name = fiobj_str_new(name, name_len);
+
+  // store the parameter name
+  http_mime_parser2fio(parser)->partial_name = rb_str_new(name, name_len);
 
   if (!filename)
     return;
 
-  fiobj_str_write(http_mime_parser2fio(parser)->partial_name, "[type]", 6);
-  fio_str_info_s tmp =
-      fiobj_obj2cstr(http_mime_parser2fio(parser)->partial_name);
-  http_add2hash(http_mime_parser2fio(parser)->h->params, tmp.data, tmp.len,
-                mimetype, mimetype_len, 0);
+  // create and store the temporary file for the file data
+  char* path;
+  VALUE r_tempfile = create_temp_file(parser, &path);
 
-  fiobj_str_resize(http_mime_parser2fio(parser)->partial_name, name_len);
-  fiobj_str_write(http_mime_parser2fio(parser)->partial_name, "[name]", 6);
-  tmp = fiobj_obj2cstr(http_mime_parser2fio(parser)->partial_name);
-  http_add2hash(http_mime_parser2fio(parser)->h->params, tmp.data, tmp.len,
-                filename, filename_len, 0);
-
-  fiobj_str_resize(http_mime_parser2fio(parser)->partial_name, name_len);
-  fiobj_str_write(http_mime_parser2fio(parser)->partial_name, "[data]", 6);
+  http_mime_parser2fio(parser)->partial_fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+  
+  VALUE r_value = build_file_value(r_tempfile, filename, filename_len, mimetype, mimetype_len);
+  http_mime_parser2fio(parser)->partial_tempfile = r_value;
 }
 
 /** Called when partial data is available. */
 static void http_mime_parser_on_partial_data(http_mime_parser_s *parser,
                                              void *value, size_t value_len) {
-  if (!http_mime_parser2fio(parser)->partial_offset)
-    http_mime_parser2fio(parser)->partial_offset =
-        http_mime_parser2fio(parser)->pos +
-        ((uintptr_t)value -
-         (uintptr_t)http_mime_parser2fio(parser)->buffer.data);
-  http_mime_parser2fio(parser)->partial_length += value_len;
-  (void)value;
+
+  http_fio_mime_s *fio_parser = http_mime_parser2fio(parser);
+
+  // if this is a file - write into it rightaway
+  if (fio_parser->partial_fd) {
+    write(fio_parser->partial_fd, value, value_len);
+    return;
+  }
+
+  // if that's just a large piece of data - store the offset and length values
+  if (!fio_parser->partial_offset) {
+    fio_parser->partial_offset = fio_parser->pos + ((uintptr_t)value - (uintptr_t)fio_parser->buffer.data);
+  }
+  fio_parser->partial_length += value_len;
 }
 
 /** Called when the partial data is complete. */
 static void http_mime_parser_on_partial_end(http_mime_parser_s *parser) {
+  http_fio_mime_s *fio_parser = http_mime_parser2fio(parser);
 
-  fio_str_info_s tmp =
-      fiobj_obj2cstr(http_mime_parser2fio(parser)->partial_name);
-  FIOBJ o = FIOBJ_INVALID;
-  if (!http_mime_parser2fio(parser)->partial_length)
+  // for a file - add to params and close the fd
+  if (fio_parser->partial_fd) {
+    add_to_params(fio_parser->params, RSTRING_PTR(fio_parser->partial_name), RSTRING_LEN(fio_parser->partial_name), fio_parser->partial_tempfile);
+    close(fio_parser->partial_fd);
+
+    fio_parser->partial_name = Qnil;
+    fio_parser->partial_tempfile = Qnil;
+    fio_parser->partial_fd = 0;
+
     return;
-  if (http_mime_parser2fio(parser)->partial_length < 42) {
-    /* short data gets a new object */
-    o = fiobj_str_new(http_mime_parser2fio(parser)->buffer.data +
-                          http_mime_parser2fio(parser)->partial_offset,
-                      http_mime_parser2fio(parser)->partial_length);
-  } else {
-    /* longer data gets a reference object (memory collision concerns) */
-    o = fiobj_data_slice(http_mime_parser2fio(parser)->h->body,
-                         http_mime_parser2fio(parser)->partial_offset,
-                         http_mime_parser2fio(parser)->partial_length);
   }
-  http_add2hash2(http_mime_parser2fio(parser)->h->params, tmp.data, tmp.len, o,
-                 0);
-  fiobj_free(http_mime_parser2fio(parser)->partial_name);
-  http_mime_parser2fio(parser)->partial_name = FIOBJ_INVALID;
-  http_mime_parser2fio(parser)->partial_offset = 0;
+
+  FIOBJ slice = fiobj_data_slice(fio_parser->h->body, fio_parser->partial_offset, fio_parser->partial_length);
+  fio_str_info_s s_slice = fiobj_obj2cstr(slice);
+  VALUE r_value = rb_enc_str_new(s_slice.data, s_slice.len, IodineBinaryEncoding);
+  add_to_params(fio_parser->params, RSTRING_PTR(fio_parser->partial_name), RSTRING_LEN(fio_parser->partial_name), r_value);
+
+  fio_parser->partial_name = Qnil;
+  fio_parser->partial_length = 0;
+  fio_parser->partial_offset = 0;
 }
 
 /**
@@ -1911,65 +2076,29 @@ static inline size_t http_mime_decode_url(char *dest, const char *encoded,
 }
 
 /**
- * Attempts to decode the request's body.
- *
- * Supported Types include:
- * * application/x-www-form-urlencoded
- * * application/json
- * * multipart/form-data
+ * Attempts to decode a multipart/form-data encoded body.
  */
-int http_parse_body(http_s *h) {
-  static uint64_t content_type_hash;
-  if (!h->body)
-    return -1;
-  if (!content_type_hash)
-    content_type_hash = fiobj_hash_string("content-type", 12);
-  FIOBJ ct = fiobj_hash_get2(h->headers, content_type_hash);
-  fio_str_info_s content_type = fiobj_obj2cstr(ct);
-  if (content_type.len < 16)
-    return -1;
-  if (content_type.len >= 33 &&
-      !strncasecmp("application/x-www-form-urlencoded", content_type.data,
-                   33)) {
-    if (!h->params)
-      h->params = fiobj_hash_new();
-    FIOBJ tmp = h->query;
-    h->query = h->body;
-    http_parse_query(h);
-    h->query = tmp;
-    return 0;
-  }
-  if (content_type.len >= 16 &&
-      !strncasecmp("application/json", content_type.data, 16)) {
-    content_type = fiobj_obj2cstr(h->body);
-    if (h->params)
-      return -1;
-    if (fiobj_json2obj(&h->params, content_type.data, content_type.len) == 0)
-      return -1;
-    if (FIOBJ_TYPE_IS(h->params, FIOBJ_T_HASH))
-      return 0;
-    FIOBJ tmp = h->params;
-    FIOBJ key = fiobj_str_new("JSON", 4);
-    h->params = fiobj_hash_new2(4);
-    fiobj_hash_set(h->params, key, tmp);
-    fiobj_free(key);
-    return 0;
+VALUE http_parse_multipart(http_s *h, char *content_type, size_t content_type_len) {
+  static uint8_t http_initialized;
+  if (!http_initialized) {
+    http_initialized = 1;
+    http_init();
   }
 
-  http_fio_mime_s p = {.h = h};
-  if (http_mime_parser_init(&p.p, content_type.data, content_type.len))
-    return -1;
-  if (!h->params)
-    h->params = fiobj_hash_new();
+  VALUE params = rb_hash_new();
+  http_fio_mime_s p = {.h = h, .params = params};
+  if (http_mime_parser_init(&p.p, content_type, content_type_len))
+    rb_raise(rb_eRuntimeError, "Malformed multipart request");
 
   do {
     size_t cons = http_mime_parse(&p.p, p.buffer.data, p.buffer.len);
     p.pos += cons;
-    p.buffer = fiobj_data_pread(h->body, p.pos, 4096);
+    p.buffer = fiobj_data_pread(h->body, p.pos, 262144);
   } while (p.buffer.data && !p.p.done && !p.p.error);
-  fiobj_free(p.partial_name);
-  p.partial_name = FIOBJ_INVALID;
-  return 0;
+  
+  p.params = Qnil;
+
+  return params;
 }
 
 /* *****************************************************************************
@@ -2487,6 +2616,24 @@ ssize_t http_decode_path_unsafe(char *dest, const char *url_data) {
   }
   *pos = 0;
   return pos - dest;
+}
+
+// init the http module to enable multipart/form-data parsing;
+// should be called lazily as it references `Rage`
+void http_init(void) {
+  cTempfile = rb_const_get(rb_cObject, rb_intern("Tempfile"));
+
+  VALUE cRage = rb_const_get(rb_cObject, rb_intern("Rage"));
+  cUploadedFile = rb_const_get(cRage, rb_intern("UploadedFile"));
+  
+  tempfile_args = rb_hash_new();
+  rb_hash_aset(tempfile_args, ID2SYM(rb_intern("binmode")), true);
+  rb_global_variable(&tempfile_args);
+
+  create_id = rb_intern("create");
+  path_id = rb_intern("path");
+
+  IodineBinaryEncoding = rb_enc_find("binary");
 }
 
 /* *****************************************************************************

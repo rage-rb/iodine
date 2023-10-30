@@ -106,6 +106,7 @@ rack_declare(XSENDFILE_TYPE);        // for X-Sendfile support
 rack_declare(XSENDFILE_TYPE_HEADER); // for X-Sendfile support
 rack_declare(CONTENT_LENGTH_HEADER); // for X-Sendfile support
 rack_declare(IODINE_REQUEST_ID);
+rack_declare(IODINE_HAS_BODY);
 
 /* used internally to handle requests */
 typedef struct {
@@ -341,6 +342,9 @@ static inline VALUE copy2env(iodine_http_request_handle_s *handle) {
   tmp = fiobj_obj2cstr(h->path);
   rb_hash_aset(env, PATH_INFO,
                rb_enc_str_new(tmp.data, tmp.len, IodineBinaryEncoding));
+
+  rb_hash_aset(env, IODINE_HAS_BODY, (h->body) ? Qtrue : Qfalse);
+
   if (h->query) {
     tmp = fiobj_obj2cstr(h->query);
     rb_hash_aset(env, QUERY_STRING,
@@ -976,6 +980,7 @@ static void initialize_env_template(void) {
   rb_hash_aset(env_template_no_upgrade, SERVER_NAME, QUERY_STRING);
   rb_hash_aset(env_template_no_upgrade, SERVER_PROTOCOL, QUERY_STRING);
   rb_hash_aset(env_template_no_upgrade, IODINE_REQUEST_ID, QUERY_STRING);
+  rb_hash_aset(env_template_no_upgrade, IODINE_HAS_BODY, QUERY_STRING);
 
   /* WebSocket upgrade support */
   env_template_websockets = rb_hash_dup(env_template_no_upgrade);
@@ -1235,6 +1240,7 @@ void iodine_init_http(void) {
   rack_autoset(HTTP_HOST);
 
   rack_autoset(IODINE_REQUEST_ID);
+  rack_autoset(IODINE_HAS_BODY);
 
   rack_set(HTTP_SCHEME, "http");
   rack_set(HTTPS_SCHEME, "https");
