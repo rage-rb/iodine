@@ -60,6 +60,10 @@ Compile Time Settings
 #define FIO_HTTP_EXACT_LOGGING 0
 #endif
 
+#ifndef PARAMS_MAX_DEPTH
+#define PARAMS_MAX_DEPTH 5
+#endif
+
 /** the `http_listen settings, see details in the struct definition. */
 typedef struct http_settings_s http_settings_s;
 

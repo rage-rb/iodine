@@ -275,7 +275,7 @@ static VALUE parse_nested_query_internal(char *str, size_t len) {
       uint8_t depth = 0;
 
       while (*pos != '=' && pos < end) {
-        if (depth++ == 5) {
+        if (depth++ == PARAMS_MAX_DEPTH) {
           rb_raise(rb_eRuntimeError, "Params too deep");
         }
 

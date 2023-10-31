@@ -1815,7 +1815,7 @@ typedef struct {
 
 /** Parse a parameter key and add it to the `params` hash. Check `parse_nested_query_internal` for reference. */
 static void add_to_params(VALUE params, char *key, size_t key_len, VALUE value) {
-  char *pos;
+  char *pos = NULL;
   if (key_len > 1) {
     pos = memchr(key + 1, '[', key_len - 1);
   }
@@ -1830,7 +1830,7 @@ static void add_to_params(VALUE params, char *key, size_t key_len, VALUE value) 
     uint8_t depth = 0;
 
     while (pos < end) {
-      if (depth++ == 5) {
+      if (depth++ == PARAMS_MAX_DEPTH) {
         rb_raise(rb_eRuntimeError, "Params too deep");
       }
 
@@ -2627,7 +2627,7 @@ void http_init(void) {
   cUploadedFile = rb_const_get(cRage, rb_intern("UploadedFile"));
   
   tempfile_args = rb_hash_new();
-  rb_hash_aset(tempfile_args, ID2SYM(rb_intern("binmode")), true);
+  rb_hash_aset(tempfile_args, ID2SYM(rb_intern("binmode")), Qtrue);
   rb_global_variable(&tempfile_args);
 
   create_id = rb_intern("create");
