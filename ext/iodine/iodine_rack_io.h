@@ -15,6 +15,8 @@ extern struct IodineRackIO {
   VALUE (*create)(http_s *h, VALUE env);
   void (*close)(VALUE rack_io);
   void (*init)(void);
+  http_s * (*get_handle)(VALUE obj);
+
 } IodineRackIO;
 
 #endif /* RUBY_RACK_IO_H */

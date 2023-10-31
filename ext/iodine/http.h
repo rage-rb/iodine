@@ -7,6 +7,8 @@ Feel free to copy, use and enjoy according to the license provided.
 */
 #define H_HTTP_H
 
+#include "ruby.h"
+
 #include <fio.h>
 
 #include <fiobj.h>
@@ -56,6 +58,10 @@ Compile Time Settings
  * the default.
  */
 #define FIO_HTTP_EXACT_LOGGING 0
+#endif
+
+#ifndef PARAMS_MAX_DEPTH
+#define PARAMS_MAX_DEPTH 5
 #endif
 
 /** the `http_listen settings, see details in the struct definition. */
@@ -772,25 +778,9 @@ HTTP GET and POST parsing helpers
 ***************************************************************************** */
 
 /**
- * Attempts to decode the request's body.
- *
- * Supported Types include:
- * * application/x-www-form-urlencoded
- * * application/json
- * * multipart/form-data
- *
- * This should be called before `http_parse_query`, in order to support JSON
- * data.
- *
- * If the JSON data isn't an object, it will be saved under the key "JSON" in
- * the `params` hash.
- *
- * If the `multipart/form-data` type contains JSON files, they will NOT be
- * parsed (they will behave like any other file, with `data`, `type` and
- * `filename` keys assigned). This allows non-object JSON data (such as array)
- * to be handled by the app.
+ * Attempts to decode a multipart/form-data encoded body.
  */
-int http_parse_body(http_s *h);
+VALUE http_parse_multipart(http_s *h, char *content_type, size_t content_type_len);
 
 /**
  * Parses the query part of an HTTP request/response. Uses `http_add2hash`.
@@ -1006,6 +996,10 @@ typedef fio_url_s http_url_s
  * Invalid formats might produce unexpected results. No error testing performed.
  */
 #define http_url_parse(url, len) fio_url_parse((url), (len))
+
+// init the http module to enable multipart/form-data parsing;
+// should be called lazily as it references `Rage`
+void http_init(void);
 
 #if DEBUG
 void http_tests(void);
