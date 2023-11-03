@@ -569,6 +569,7 @@ RSpec.describe Iodine::Rack::Utils do
           message: HTTP::FormData::File.new(file.path)
         })
 
+        expect(response.status.to_i).to eq(200)
         expect(response.parse["message_digest"]).to eq("9f18eb0338a94b5306cf6ab104ada8c8")
       end
     end
@@ -586,6 +587,7 @@ RSpec.describe Iodine::Rack::Utils do
           "users[user][friends][][name]" => "chandler"
         })
 
+        expect(response.status.to_i).to eq(200)
         parsed = response.parse
         expect(parsed["users"]).to eq({ "user" => { "id" => "11", "name" => "ross", "friends" => [{ "id" => "22", "name" => "chandler" }] } })
         expect(parsed["count"]).to eq("1")
@@ -629,6 +631,7 @@ RSpec.describe Iodine::Rack::Utils do
           f: HTTP::FormData::File.new(file.path)
         })
 
+        expect(response.status.to_i).to eq(200)
         expect(response.parse["f_digest"]).to eq("4bc18f32f2f14a84890b5680ffeb2cbb")
       end
     end
@@ -644,6 +647,7 @@ RSpec.describe Iodine::Rack::Utils do
           parameter: string
         })
 
+        expect(response.status.to_i).to eq(200)
         expect(response.parse["parameter"]).to eq(string)
       end
     end
