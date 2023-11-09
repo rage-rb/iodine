@@ -569,7 +569,7 @@ static inline int ruby2c_response_send(iodine_http_request_handle_s *handle,
     if (body && rb_respond_to(body, close_method_id))
       IodineCaller.call(body, close_method_id);
     body = Qnil;
-    handle->type = IODINE_HTTP_NONE;
+    handle->type = IODINE_HTTP_EMPTY;
     return 0;
   }
   if (TYPE(body) == T_ARRAY) {
