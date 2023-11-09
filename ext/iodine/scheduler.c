@@ -44,8 +44,11 @@ static void iodine_scheduler_task_close(intptr_t uuid, fio_protocol_s *fio_proto
 
 static void iodine_scheduler_task_perform(intptr_t uuid, fio_protocol_s *fio_protocol) {
   scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
-  IodineCaller.call(protocol->block, call_id);
-  protocol->fulfilled = 1;
+
+  if (!protocol->fulfilled) {
+    IodineCaller.call(protocol->block, call_id);
+    protocol->fulfilled = 1;
+  }
 
   (void)uuid;
 }
@@ -55,7 +58,7 @@ static void iodine_scheduler_task_timeout(intptr_t uuid, fio_protocol_s *fio_pro
 
   if (!protocol->fulfilled) {
     IodineCaller.call2(protocol->block, call_id, 1, timeout_args);
-    fio_close(uuid);
+    protocol->fulfilled = 1;
   }
 }
 
