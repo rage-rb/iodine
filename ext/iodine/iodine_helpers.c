@@ -456,6 +456,38 @@ static VALUE parse_multipart(VALUE self, VALUE rack_io, VALUE content_type) {
   (void)self;
 }
 
+/**
+Generate a timestamp to use in logs.
+*/
+static VALUE gen_timestamp(VALUE self) {
+  struct tm tm;
+  time_t last_tick = fio_last_tick().tv_sec;
+  http_gmtime(last_tick, &tm);
+
+  char buffer[32];
+  size_t len = http_date2timestamp(buffer, &tm);
+
+  return rb_str_new(buffer, len);
+}
+
+static const char request_tag_seed[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+static const uint8_t request_tag_len = 16;
+
+/**
+Generate a request tag to use in logs.
+*/
+static VALUE gen_request_tag(VALUE self) {
+  char buffer[request_tag_len];
+  uint8_t i, random_index;
+
+  for (i = 0; i < request_tag_len; i++) {
+    random_index = rand() % 36;
+    buffer[i] = request_tag_seed[random_index];
+  }
+
+  return rb_str_new(buffer, request_tag_len);
+}
+
 /* *****************************************************************************
 Ruby Initialization
 ***************************************************************************** */
@@ -511,6 +543,8 @@ Results:
   rb_define_module_function(tmp, "parse_nested_query", parse_nested_query, 1);
   rb_define_module_function(tmp, "parse_urlencoded_nested_query", parse_urlencoded_nested_query, 1);
   rb_define_module_function(tmp, "parse_multipart", parse_multipart, 2);
+  rb_define_module_function(tmp, "gen_timestamp", gen_timestamp, 0);
+  rb_define_module_function(tmp, "gen_request_tag", gen_request_tag, 0);
 
   /*
 The monkey-patched methods are in this module, allowing Iodine::Rack::Utils to
@@ -529,4 +563,6 @@ include non-patched methods as well.
   rb_define_singleton_method(tmp, "rfc2109", iodine_rfc2109, 1);
   rb_define_singleton_method(tmp, "rfc2822", iodine_rfc2822, 1);
   // rb_define_module_function(IodineUtils, "time2str", date_str, -1);
+
+  srand(time(0));
 }

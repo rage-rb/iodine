@@ -2361,6 +2361,43 @@ size_t http_date2rfc7231(char *target, struct tm *tmbuf) {
   return pos - target;
 }
 
+size_t http_date2timestamp(char *target, struct tm *tmbuf) {
+  char *pos = target;
+  uint16_t tmp;
+  pos += fio_ltoa(pos, tmbuf->tm_year + 1900, 10);
+  *(pos++) = '-';
+  tmp = (tmbuf->tm_mon + 1) / 10;
+  pos[0] = '0' + tmp;
+  pos[1] = '0' + ((tmbuf->tm_mon + 1) - (tmp * 10));
+  pos += 2;
+  *(pos++) = '-';
+  tmp = (tmbuf->tm_mday) / 10;
+  pos[0] = '0' + tmp;
+  pos[1] = '0' + (tmbuf->tm_mday - (tmp * 10));
+  pos += 2;
+  *(pos++) = 'T';
+  tmp = tmbuf->tm_hour / 10;
+  pos[0] = '0' + tmp;
+  pos[1] = '0' + (tmbuf->tm_hour - (tmp * 10));
+  pos[2] = ':';
+  tmp = tmbuf->tm_min / 10;
+  pos[3] = '0' + tmp;
+  pos[4] = '0' + (tmbuf->tm_min - (tmp * 10));
+  pos[5] = ':';
+  tmp = tmbuf->tm_sec / 10;
+  pos[6] = '0' + tmp;
+  pos[7] = '0' + (tmbuf->tm_sec - (tmp * 10));
+  pos += 8;
+  pos[0] = '+';
+  pos[1] = '0';
+  pos[2] = '0';
+  pos[3] = ':';
+  pos[4] = '0';
+  pos[5] = '0';
+  pos += 6;
+  return pos - target;
+}
+
 size_t http_date2str(char *target, struct tm *tmbuf);
 
 size_t http_date2rfc2822(char *target, struct tm *tmbuf) {

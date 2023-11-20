@@ -918,6 +918,8 @@ size_t http_date2rfc7231(char *target, struct tm *tmbuf);
 size_t http_date2rfc2109(char *target, struct tm *tmbuf);
 /** Writes an RFC 2822 date representation to target. */
 size_t http_date2rfc2822(char *target, struct tm *tmbuf);
+/** Writes a timestamp to target. */
+size_t http_date2timestamp(char *target, struct tm *tmbuf);
 /**
 Writes an HTTP date string to the `target` buffer.
 
