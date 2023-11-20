@@ -130,8 +130,9 @@ static VALUE iodine_scheduler_write(VALUE self, VALUE r_fd, VALUE r_buffer, VALU
   Check_Type(r_offset, T_FIXNUM);
   int offset = FIX2INT(r_offset);
 
-  fio_write2(fio_fd2uuid(fd), .data.buffer = buffer, .length = length, .offset = offset,
-             .after.dealloc = FIO_DEALLOC_NOOP);
+  void *cpy = fio_malloc(length);
+  memcpy(cpy, buffer, length);
+  fio_write2(fio_fd2uuid(fd), .data.buffer = cpy, .length = length, .offset = offset, .after.dealloc = fio_free);
 
   return r_length;
 
