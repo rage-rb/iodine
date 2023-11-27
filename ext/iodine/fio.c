@@ -2051,7 +2051,7 @@ static size_t fio_poll(void) {
         epoll_wait(internal[j].data.fd, events, FIO_POLL_MAX_EVENTS, 0);
     if (active_count > 0) {
       for (int i = 0; i < active_count; i++) {
-        if (events[i].events & (~(EPOLLIN | EPOLLOUT))) {
+        if (events[i].events & (~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP))) {
           // errors are hendled as disconnections (on_close)
           fio_force_close_in_poll(fd2uuid(events[i].data.fd));
         } else {
@@ -2060,9 +2060,14 @@ static size_t fio_poll(void) {
             fio_defer_push_urgent(deferred_on_ready,
                                   (void *)fd2uuid(events[i].data.fd), NULL);
           }
-          if (events[i].events & EPOLLIN)
+          if (events[i].events & EPOLLIN) {
             fio_defer_push_task(deferred_on_data,
                                 (void *)fd2uuid(events[i].data.fd), NULL);
+          }
+          if (events[i].events & (EPOLLHUP | EPOLLRDHUP)) {
+            fio_defer_push_task(fio_force_close_in_poll,
+                                (void *)fd2uuid(events[i].data.fd), NULL);
+          }
         }
       } // end for loop
       total += active_count;
@@ -2197,7 +2202,8 @@ static size_t fio_poll(void) {
                             NULL);
       }
       if (events[i].flags & (EV_EOF | EV_ERROR)) {
-        fio_force_close_in_poll(fd2uuid(events[i].udata));
+        fio_defer_push_task(fio_force_close_in_poll,
+                            (void *)fd2uuid(events[i].udata), NULL);
       }
     }
   } else if (active_count < 0) {
