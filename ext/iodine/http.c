@@ -737,8 +737,6 @@ static void http_resume_wrapper(intptr_t uuid, fio_protocol_s *p_, void *arg) {
   http_pause_handle_s *http = arg;
   http_s *h = http->h;
   h->udata = http->udata;
-  h->fiber = http->fiber;
-  h->subscription = http->subscription;
   http_vtable_s *vtbl = (http_vtable_s *)h->private_data.vtbl;
   if (http->task)
     http->task(h);
@@ -771,8 +769,6 @@ void http_pause(http_s *h, void (*task)(http_pause_handle_s *http)) {
       .uuid = p->uuid,
       .h = h,
       .udata = h->udata,
-      .fiber = h->fiber,
-      .subscription = h->subscription,
   };
   vtbl->http_on_pause(h, p);
   fio_defer(http_pause_wrapper, http, (void *)((uintptr_t)task));
