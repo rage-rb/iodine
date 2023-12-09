@@ -1,3 +1,6 @@
+require "rage/all"
+Fiber.set_scheduler(Rage::FiberScheduler.new)
+
 run ->(env) do
    body = env['rack.input'].read
    if body.length > 0
