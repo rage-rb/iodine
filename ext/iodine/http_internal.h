@@ -97,10 +97,6 @@ HTTP request/response object management
 
 static inline void http_s_new(http_s *h, http_fio_protocol_s *owner,
                               http_vtable_s *vtbl) {
-  FIOBJ request_id = fiobj_str_buf(14);
-  fiobj_str_write(request_id, "req:", 4);
-  fiobj_str_write_i(request_id, (uint32_t)fio_rand64());
-
   *h = (http_s){
       .private_data =
           {
@@ -110,8 +106,7 @@ static inline void http_s_new(http_s *h, http_fio_protocol_s *owner,
           },
       .headers = fiobj_hash_new(),
       .received_at = fio_last_tick(),
-      .status = 200,
-      .request_id = request_id,
+      .status = 200
   };
 }
 
@@ -129,9 +124,9 @@ static inline void http_s_destroy(http_s *h, uint8_t log) {
   fiobj_free(h->cookies);
   fiobj_free(h->body);
   fiobj_free(h->params);
-  fiobj_free(h->request_id);
 
-  IodineStore.remove((VALUE)h->fiber);
+  h->fiber = NULL;
+  h->subscription = NULL;
 
   *h = (http_s){
     .private_data.vtbl = h->private_data.vtbl,

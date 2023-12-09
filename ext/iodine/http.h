@@ -128,11 +128,8 @@ typedef struct {
   /** in case the request was paused, this will hold a Ruby fiber, that was scheduled during the request. */
   void *fiber;
 
-  /**
-   * in case the request needs to be paused, Iodine will subscribe to a channel with this name;
-   * once Ruby finishes processing, it will publish to this channel telling Iodine the request can be resumed.
-   */
-  FIOBJ request_id;
+  /** in case the request needs to be paused, Iodine will subscribe to a channel identified by this object. */
+  void *subscription;
 } http_s;
 
 /**
@@ -283,6 +280,8 @@ struct http_pause_handle_s {
   uintptr_t uuid;
   http_s *h;
   void *udata;
+  void *fiber;
+  void *subscription;
   void (*task)(http_s *);
   void (*fallback)(void *);
 };
