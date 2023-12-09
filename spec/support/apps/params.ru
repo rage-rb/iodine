@@ -1,9 +1,8 @@
 require "json"
 require "digest"
+require "rage/all"
 
-module Rage
-  UploadedFile = Struct.new(:file, :original_filename, :content_type)
-end
+Fiber.set_scheduler(Rage::FiberScheduler.new)
 
 run ->(env) do
   params = Iodine::Rack::Utils.parse_multipart(env["rack.input"], env["CONTENT_TYPE"])

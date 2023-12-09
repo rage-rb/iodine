@@ -13,6 +13,9 @@
 #      ab -c 2000 -t 5 -n 1000000 -k http://127.0.0.1:3000/
 #      wrk -c2000 -d5 -t12 http://localhost:3000/
 
+require "rage/all"
+Fiber.set_scheduler(Rage::FiberScheduler.new)
+
 module HelloWorld
   # This is the HTTP response object according to the Rack specification.
 

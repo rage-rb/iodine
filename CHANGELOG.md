@@ -6,6 +6,42 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.0.0 (2023-12-09)
+
+**Update**: Schedule request fibers.
+
+#### Change log v.2.3.0 (2023-11-27)
+
+**Fix**: Correctly handle non-persistent HTTP connections.
+
+#### Change log v.2.2.0 (2023-11-20)
+
+**Update**: Add `gen_request_tag` and `gen_timestamp` methods.
+
+**Fix**: Use separate buffer for writing.
+
+#### Change log v.2.1.1 (2023-11-09)
+
+**Fix**: Correctly update the fulfilled flag.
+
+**Fix**: Always send a response.
+
+#### Change log v.2.1.0 (2023-11-03)
+
+**Fix**: Return an error on timeouts.
+
+#### Change log v.2.0.0 (2023-10-31)
+
+**Update**: Parse params.
+
+#### Change log v.1.8.0 (2023-09-25)
+
+**Fix**: Free up memory when closing the protocol.
+
+#### Change log v.1.7.58 (2023-09-15)
+
+**Update**: Allow to pause and resume fiber requests.
+
 #### Change log v.0.7.57 (2023-09-04)
 
 **Fix**: Fixes possible name collision when loading gem (`.rb` vs. `.so` loading). Credit to @noraj (Alexandre ZANNI) for opening issue #148. Credit to @janbiedermann (Jan Biedermann) for discovering the root cause and offering a solution.
