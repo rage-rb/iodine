@@ -106,7 +106,7 @@ static inline void http_s_new(http_s *h, http_fio_protocol_s *owner,
           },
       .headers = fiobj_hash_new(),
       .received_at = fio_last_tick(),
-      .status = 200
+      .status = 200,
   };
 }
 

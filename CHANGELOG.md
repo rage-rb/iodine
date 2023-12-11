@@ -6,9 +6,14 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.0.1 (2023-12-11)
+
+**Fix**: Disable scheduling request fibers.
+
 #### Change log v.3.0.0 (2023-12-09)
 
 **Update**: Schedule request fibers.
+**Update**: Improve stability and memory management under high load.
 
 #### Change log v.2.3.0 (2023-11-27)
 

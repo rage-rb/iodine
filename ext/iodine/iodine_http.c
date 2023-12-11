@@ -60,9 +60,8 @@ static ID each_method_id;
 static ID attach_method_id;
 static ID iodine_call_proc_id;
 static ID fiber_result_var_id;
+static VALUE http_wait_directive;
 static ID fiber_id_method_id;
-static VALUE rb_cFiber;
-static ID schedule_method_id;
 
 static VALUE env_template_no_upgrade;
 static VALUE env_template_websockets;
@@ -120,6 +119,7 @@ typedef struct {
     IODINE_HTTP_XSENDFILE,
     IODINE_HTTP_EMPTY,
     IODINE_HTTP_ERROR,
+    IODINE_HTTP_WAIT,
     IODINE_HTTP_DEFERRED,
   } type;
   enum iodine_upgrade_type_enum {
@@ -679,7 +679,6 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
     goto err_not_found;
 
   if (handle->type == IODINE_HTTP_DEFERRED) {
-    // the deferred response is now ready so fetch it from the fiber
     rbresponse = rb_ivar_get((VALUE)h->fiber, fiber_result_var_id);
   } else {
     // create / register env variable
@@ -688,13 +687,8 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
     tmp = IodineRackIO.create(h, env);
     // pass env variable to handler
     rbresponse = IodineCaller.call2((VALUE)h->udata, iodine_call_proc_id, 1, &env);
-    IodineStore.add(rbresponse);
     // close rack.io
     IodineRackIO.close(tmp);
-
-    // if there's a fiber in the http_s object means the request has to be deferred
-    if (h->fiber)
-      goto defer;
   }
 
   // test handler's return value
@@ -703,6 +697,13 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
   }
 
   tmp = rb_ary_entry(rbresponse, 0);
+  // rack will return `[:__http_defer__, fiber_to_wait_on]` in case the request needs to be paused
+  if (TYPE(tmp) == T_SYMBOL && tmp == http_wait_directive) {
+    h->fiber = (void *)IodineStore.add(rb_ary_entry(rbresponse, 1));
+    goto defer;
+  }
+
+  IodineStore.add(rbresponse);
   // set response status
   if (TYPE(tmp) == T_STRING) {
     char *data = RSTRING_PTR(tmp);
@@ -741,7 +742,8 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
   // review each header and write it to the response.
   rb_hash_foreach(response_headers, for_each_header_data, (VALUE)(h));
   // review for upgrade.
-  if (handle->type != IODINE_HTTP_DEFERRED && (intptr_t)h->status < 300 && ruby2c_review_upgrade(handle, rbresponse, env))
+  if (handle->type != IODINE_HTTP_DEFERRED && (intptr_t)h->status < 300 &&
+      ruby2c_review_upgrade(handle, rbresponse, env))
     goto external_done;
   // send the request body.
   if (ruby2c_response_send(handle, rbresponse, env))
@@ -750,31 +752,32 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
 finish:
   IodineStore.remove(rbresponse);
   IodineStore.remove(env);
-  return (void *)rbresponse;
+  return NULL;
 
 external_done:
   IodineStore.remove(rbresponse);
   IodineStore.remove(env);
   handle->type = IODINE_HTTP_NONE;
-  return (void *)rbresponse;
+  return NULL;
 
 err_not_found:
   IodineStore.remove(rbresponse);
   IodineStore.remove(env);
   h->status = 404;
   handle->type = IODINE_HTTP_ERROR;
-  return (void *)rbresponse;
+  return NULL;
 
 internal_error:
   IodineStore.remove(rbresponse);
   IodineStore.remove(env);
   h->status = 500;
   handle->type = IODINE_HTTP_ERROR;
-  return (void *)rbresponse;
+  return NULL;
 
 defer:
   IodineStore.remove(env);
-  return (void *)rbresponse;
+  handle->type = IODINE_HTTP_WAIT;
+  return NULL;
 }
 
 static inline void
@@ -823,10 +826,11 @@ static inline void http_resume_deferred_request_handler(http_s *h) {
     .type = IODINE_HTTP_DEFERRED,
   };
 
-  IodineCaller.enterGVL((void *(*)(void *))iodine_handle_request_in_GVL, &handle);
+  IodineCaller.enterGVL((void *(*)(void *))iodine_handle_request_in_GVL,
+                        &handle);
 
-  IodineStore.remove((VALUE)h->fiber);
   fio_unsubscribe((subscription_s *)h->subscription);
+  IodineStore.remove((VALUE)h->fiber);
 
   iodine_perform_handle_action(handle);
 }
@@ -835,9 +839,14 @@ static inline void on_iodine_request_id_message(fio_msg_s *msg) {
   http_resume((http_pause_handle_s *)msg->udata1, http_resume_deferred_request_handler, NULL);
 }
 
+static inline void http_close_deferred_request_handler(void *sub) {
+  fio_unsubscribe((subscription_s *)sub);
+}
+
+// when Ruby sends a message into the `fiber_id` channel means the fiber attached to
+// to the `http_s h` var can be resumed
 static inline void http_pause_request_handler(http_pause_handle_s *s) {
   VALUE fiber_id = rb_funcall((VALUE)s->fiber, fiber_id_method_id, 0);
-
   subscription_s *sub = fio_subscribe(.channel = {0, RSTRING_LEN(fiber_id), RSTRING_PTR(fiber_id)},
                                       .on_message = on_iodine_request_id_message,
                                       .udata1 = (void *)s);
@@ -845,31 +854,16 @@ static inline void http_pause_request_handler(http_pause_handle_s *s) {
   s->subscription = (void *)sub;
 }
 
-static VALUE fiber_request_block(RB_BLOCK_CALL_FUNC_ARGLIST(_, handle_)) {
-  VALUE fiber_id = rb_funcall(rb_fiber_current(), fiber_id_method_id, 0);
-
-  iodine_http_request_handle_s *handle = (iodine_http_request_handle_s *)handle_;
-  VALUE rbresponse = (VALUE)IodineCaller.enterGVL((void *(*)(void *))iodine_handle_request_in_GVL, handle);
-
-  fio_publish(.channel = {0, RSTRING_LEN(fiber_id), RSTRING_PTR(fiber_id)});
-  rb_ivar_set(rb_fiber_current(), fiber_result_var_id, rbresponse);
-
-  return rbresponse;
-}
-
 static void on_rack_request(http_s *h) {
   iodine_http_request_handle_s handle = (iodine_http_request_handle_s){
       .h = h,
       .upgrade = IODINE_UPGRADE_NONE,
   };
+  IodineCaller.enterGVL((void *(*)(void *))iodine_handle_request_in_GVL,
+                        &handle);
 
-  VALUE fiber = rb_block_call(rb_cFiber, schedule_method_id, 0, NULL, fiber_request_block, (VALUE)&handle);
-
-  // the fiber encountered blocking IO and yielded - pause the request
-  if (rb_fiber_alive_p(fiber)) {
-    IodineStore.add(fiber);
-    h->fiber = (void *)fiber;
-    http_pause(h, http_pause_request_handler);
+  if (handle.type == IODINE_HTTP_WAIT) {
+    http_pause(handle.h, http_pause_request_handler);
   } else {
     iodine_perform_handle_action(handle);
   }
@@ -1249,9 +1243,8 @@ void iodine_init_http(void) {
   attach_method_id = rb_intern("attach_fd");
   iodine_call_proc_id = rb_intern("call");
   fiber_result_var_id = rb_intern("@__result");
+  http_wait_directive = ID2SYM(rb_intern("__http_defer__"));
   fiber_id_method_id = rb_intern("__get_id");
-  rb_cFiber = rb_const_get(rb_cObject, rb_intern("Fiber"));
-  schedule_method_id = rb_intern("schedule");
 
   IodineUTF8Encoding = rb_enc_find("UTF-8");
   IodineBinaryEncoding = rb_enc_find("binary");
