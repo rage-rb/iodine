@@ -1031,7 +1031,7 @@ intptr_t iodine_http_listen(iodine_connection_args_s args){
       .on_upgrade = on_rack_upgrade, .udata = (void *)args.handler,
       .timeout = args.timeout, .ws_timeout = args.ping,
       .ws_max_msg_size = args.max_msg, .max_header_size = args.max_headers,
-      .on_finish = free_iodine_http, .log = args.log,
+      .on_finish = free_iodine_http, .log = args.log, .max_clients = args.max_clients,
       .max_body_size = args.max_body, .public_folder = args.public.data);
 #else
   intptr_t uuid = http_listen(
@@ -1039,7 +1039,7 @@ intptr_t iodine_http_listen(iodine_connection_args_s args){
       .on_upgrade = on_rack_upgrade, .udata = (void *)args.handler,
       .tls = args.tls, .timeout = args.timeout, .ws_timeout = args.ping,
       .ws_max_msg_size = args.max_msg, .max_header_size = args.max_headers,
-      .on_finish = free_iodine_http, .log = args.log,
+      .on_finish = free_iodine_http, .log = args.log, .max_clients = args.max_clients,
       .max_body_size = args.max_body, .public_folder = args.public.data);
 #endif
   if (uuid == -1)
