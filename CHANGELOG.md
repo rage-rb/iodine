@@ -6,6 +6,11 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.0.2 (2023-12-18)
+
+**Fix**: Correctly set timeout option.
+**Fix**: Correctly set max_clients option.
+
 #### Change log v.3.0.1 (2023-12-11)
 
 **Fix**: Disable scheduling request fibers.
