@@ -839,10 +839,6 @@ static inline void on_iodine_request_id_message(fio_msg_s *msg) {
   http_resume((http_pause_handle_s *)msg->udata1, http_resume_deferred_request_handler, NULL);
 }
 
-static inline void http_close_deferred_request_handler(void *sub) {
-  fio_unsubscribe((subscription_s *)sub);
-}
-
 // when Ruby sends a message into the `fiber_id` channel means the fiber attached to
 // to the `http_s h` var can be resumed
 static inline void http_pause_request_handler(http_pause_handle_s *s) {
