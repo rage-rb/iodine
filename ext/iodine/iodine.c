@@ -826,7 +826,7 @@ FIO_FUNC iodine_connection_args_s iodine_connect_args(VALUE s, uint8_t is_srv) {
     service = rb_sym2str(service);
     service_str = IODINE_RSTRINFO(service);
   }
-  if (timeout != Qnil && RB_TYPE_P(ping, T_FIXNUM)) {
+  if (timeout != Qnil && RB_TYPE_P(timeout, T_FIXNUM)) {
     if (FIX2ULONG(timeout) > 255)
       FIO_LOG_WARNING(":timeout value over 255 will be silently ignored.");
     else
