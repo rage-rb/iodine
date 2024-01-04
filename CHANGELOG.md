@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.0.3 (2023-01-04)
+
+**Fix**: Stop closing Rack IO.
+
 #### Change log v.3.0.2 (2023-12-18)
 
 **Fix**: Correctly set timeout option.

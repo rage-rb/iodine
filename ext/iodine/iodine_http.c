@@ -687,8 +687,6 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
     tmp = IodineRackIO.create(h, env);
     // pass env variable to handler
     rbresponse = IodineCaller.call2((VALUE)h->udata, iodine_call_proc_id, 1, &env);
-    // close rack.io
-    IodineRackIO.close(tmp);
   }
 
   // test handler's return value
