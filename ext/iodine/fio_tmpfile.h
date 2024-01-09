@@ -37,13 +37,16 @@ static inline int fio_tmpfile(void) {
   if (P_tmpdir[sizeof(P_tmpdir) - 1] == '/') {
     char name_template[] = P_tmpdir "facil_io_tmpfile_XXXXXXXX";
     fd = mkstemp(name_template);
+    unlink(name_template);
   } else {
     char name_template[] = P_tmpdir "/facil_io_tmpfile_XXXXXXXX";
     fd = mkstemp(name_template);
+    unlink(name_template);
   }
 #else
   char name_template[] = "/tmp/facil_io_tmpfile_XXXXXXXX";
   fd = mkstemp(name_template);
+  unlink(name_template);
 #endif
   return fd;
 }
