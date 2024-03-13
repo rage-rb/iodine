@@ -1949,10 +1949,11 @@ static void add_to_params(VALUE params, char *key, size_t key_len, VALUE value) 
   }
 }
 
-static inline void cleanup_temp_file(void *r_path) {
-  char *path = StringValueCStr(r_path);
-  IodineStore.remove((VALUE)r_path);
-  unlink(path);
+static inline void cleanup_temp_file(void *path) {
+  VALUE r_path = (VALUE)path;
+  IodineStore.remove(r_path);
+  char *c_path = StringValueCStr(r_path);
+  unlink(c_path);
 }
 
 static VALUE create_temp_file(http_mime_parser_s *parser, char **path) {

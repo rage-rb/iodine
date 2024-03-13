@@ -285,6 +285,7 @@ static void deferred_on_shutdown(void *arg, void *arg2);
 static void deferred_on_ready(void *arg, void *arg2);
 static void deferred_on_data(void *uuid, void *arg2);
 static void deferred_ping(void *arg, void *arg2);
+static void deferred_force_close_in_poll(void *uuid, void *arg2);
 
 /* *****************************************************************************
 Section Start Marker
@@ -529,6 +530,10 @@ static inline int fio_clear_fd(intptr_t fd, uint8_t is_open) {
 static inline void fio_force_close_in_poll(intptr_t uuid) {
   uuid_data(uuid).close = 2;
   fio_force_close(uuid);
+}
+
+static void deferred_force_close_in_poll(void *uuid, void *arg2) {
+  fio_force_close_in_poll((intptr_t)uuid);
 }
 
 /* *****************************************************************************
@@ -2065,7 +2070,7 @@ static size_t fio_poll(void) {
                                 (void *)fd2uuid(events[i].data.fd), NULL);
           }
           if (events[i].events & (EPOLLHUP | EPOLLRDHUP)) {
-            fio_defer_push_task(fio_force_close_in_poll,
+            fio_defer_push_task(deferred_force_close_in_poll,
                                 (void *)fd2uuid(events[i].data.fd), NULL);
           }
         }
@@ -2202,7 +2207,7 @@ static size_t fio_poll(void) {
                             NULL);
       }
       if (events[i].flags & (EV_EOF | EV_ERROR)) {
-        fio_defer_push_task(fio_force_close_in_poll,
+        fio_defer_push_task(deferred_force_close_in_poll,
                             (void *)fd2uuid(events[i].udata), NULL);
       }
     }

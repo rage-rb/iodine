@@ -6,11 +6,15 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
-#### Change log v.3.0.4 (2023-01-09)
+#### Change log v.3.0.5 (2024-03-13)
+
+**Fix**: Fix the "incompatible pointer" compilation warnings.
+
+#### Change log v.3.0.4 (2024-01-09)
 
 **Fix**: Delete temp files.
 
-#### Change log v.3.0.3 (2023-01-04)
+#### Change log v.3.0.3 (2024-01-04)
 
 **Fix**: Stop closing Rack IO.
 
