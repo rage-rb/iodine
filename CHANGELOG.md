@@ -6,6 +6,11 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.0.6 (2024-03-14)
+
+**Fix**: Fix `call_with_block` function's signature.
+**Fix**: Fix "enumeration values ... not handled in switch" warning.
+
 #### Change log v.3.0.5 (2024-03-13)
 
 **Fix**: Fix the "incompatible pointer" compilation warnings.

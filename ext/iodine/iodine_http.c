@@ -544,7 +544,7 @@ array_style_multi_value:
 
 // writes the body to the response object
 static VALUE for_each_body_string(VALUE str, VALUE body_, int argc,
-                                  VALUE *argv) {
+                                  const VALUE *argv, VALUE blockarg) {
   // fprintf(stderr, "For_each - body\n");
   // write body
   if (TYPE(str) != T_STRING) {
@@ -557,6 +557,7 @@ static VALUE for_each_body_string(VALUE str, VALUE body_, int argc,
   return Qtrue;
   (void)argc;
   (void)argv;
+  (void)blockarg;
 }
 
 static inline int ruby2c_response_send(iodine_http_request_handle_s *handle,
@@ -812,6 +813,11 @@ iodine_perform_handle_action(iodine_http_request_handle_s handle) {
   case IODINE_HTTP_ERROR:
     http_send_error(handle.h, handle.h->status);
     fiobj_free(handle.body);
+    break;
+  case IODINE_HTTP_WAIT:
+  case IODINE_HTTP_DEFERRED:
+    /* these are handled before the `iodine_perform_handle_action` call */
+    FIO_LOG_WARNING("Unexpected handle type in perform_handle_action: %d", handle.type);
     break;
   }
 }

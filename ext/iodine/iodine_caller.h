@@ -17,7 +17,7 @@ extern struct IodineCaller_s {
   /** Calls a Ruby method on a given object, protecting against exceptions. */
   VALUE(*call_with_block)
   (VALUE obj, ID method, int argc, VALUE *argv, VALUE udata,
-   VALUE (*block_func)(VALUE block_argv1, VALUE udata, int argc, VALUE *argv));
+   VALUE (*block_func)(VALUE block_argv1, VALUE udata, int argc, const VALUE *argv, VALUE blockarg));
   /** Returns the GVL state flag. */
   uint8_t (*in_GVL)(void);
   /** Forces the GVL state flag. */
