@@ -2191,7 +2191,7 @@ static size_t fio_poll(void) {
 
   const struct timespec timeout = {
       .tv_sec = (timeout_millisec / 1000),
-      .tv_nsec = ((timeout_millisec & (~1023UL)) * 1000000)};
+      .tv_nsec = ((timeout_millisec % 1000) * 1000000)};
   /* wait for events and handle them */
   int active_count =
       kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
