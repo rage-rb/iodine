@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.0.7 (2024-04-10)
+
+**Fix**: Fix excessive CPU usage when using `run_every` on kqueue systems.
+
 #### Change log v.3.0.6 (2024-03-14)
 
 **Fix**: Fix `call_with_block` function's signature.
