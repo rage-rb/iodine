@@ -563,6 +563,4 @@ include non-patched methods as well.
   rb_define_singleton_method(tmp, "rfc2109", iodine_rfc2109, 1);
   rb_define_singleton_method(tmp, "rfc2822", iodine_rfc2822, 1);
   // rb_define_module_function(IodineUtils, "time2str", date_str, -1);
-
-  srand(time(0));
 }

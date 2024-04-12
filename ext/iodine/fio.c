@@ -4641,6 +4641,9 @@ static void fio_worker_startup(void) {
     fio_state_callback_clear(FIO_CALL_ON_START);
   }
 
+  /* used in `gen_request_tag` */
+  srand(time(0) + (getpid() << 8));
+
   if (fio_data->workers == 1) {
     /* Single Process - the root is also a worker */
     fio_data->is_worker = 1;
