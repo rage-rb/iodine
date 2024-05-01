@@ -386,6 +386,8 @@ typedef struct {
   uint32_t capa;
   /* connections counted towards shutdown (NOT while running) */
   uint32_t connection_count;
+  /* number of currently paused connections */
+  uint32_t async_connection_count;
   /* thread list */
   fio_ls_s thread_ids;
   /* active workers */
@@ -1294,6 +1296,18 @@ static void fio_defer_on_fork(void) {
 #endif
 }
 
+void fio_graceful_stop(void) {
+  static uint8_t stop_requested;
+
+  if (!fio_data->async_connection_count) {
+    fio_stop();
+  } else if (!stop_requested) {
+    stop_requested = 1;
+    FIO_LOG_INFO("(%d) Waiting for up to 15 seconds to allow active requests to finish...", (int)getpid());
+    fio_run_every(500, 30, (void (*)(void *))fio_graceful_stop, NULL, (void (*)(void *))fio_stop);
+  }
+}
+
 /* *****************************************************************************
 External Task API
 ***************************************************************************** */
@@ -1695,7 +1709,12 @@ static void sig_int_handler(int sig) {
 #else
       old = &fio_old_sig_term;
 #endif
-    fio_stop();
+    if (fio_data->is_worker) {
+      FIO_LOG_INFO("(%d) detected exit signal.", (int)getpid());
+    } else {
+      FIO_LOG_INFO("Server Detected exit signal.");
+    }
+    fio_graceful_stop();
     break;
 #ifndef __MINGW32__
   case SIGPIPE:
@@ -2786,6 +2805,16 @@ void fio_force_event(intptr_t uuid, enum fio_io_event ev) {
 void fio_suspend(intptr_t uuid) {
   if (uuid_is_valid(uuid))
     fio_trylock(&uuid_data(uuid).scheduled);
+}
+
+void fio_pause(intptr_t uuid) {
+  fio_atomic_add(&fio_data->async_connection_count, 1);
+  fio_suspend(uuid);
+}
+
+void fio_resume(intptr_t uuid) {
+  fio_atomic_sub(&fio_data->async_connection_count, 1);
+  fio_force_event(uuid, FIO_EVENT_ON_DATA);
 }
 
 /* *****************************************************************************
@@ -4672,10 +4701,6 @@ static void fio_worker_startup(void) {
 /* performs all clean-up / shutdown requirements except for the exit sequence */
 static void fio_worker_cleanup(void) {
   /* switch to winding down */
-  if (fio_data->is_worker)
-    FIO_LOG_INFO("(%d) detected exit signal.", (int)getpid());
-  else
-    FIO_LOG_INFO("Server Detected exit signal.");
   fio_state_callback_force(FIO_CALL_ON_SHUTDOWN);
   for (size_t i = 0; i <= fio_data->max_protocol_fd; ++i) {
     if (fd_data(i).protocol) {
@@ -7211,7 +7236,7 @@ static void fio_cluster_client_handler(struct cluster_pr_s *pr) {
     fio_publish2process(fio_msg_internal_dup(pr->msg));
     break;
   case FIO_CLUSTER_MSG_SHUTDOWN:
-    fio_stop();
+    fio_graceful_stop();
   case FIO_CLUSTER_MSG_ERROR:         /* fallthrough */
   case FIO_CLUSTER_MSG_PING:          /* fallthrough */
   case FIO_CLUSTER_MSG_ROOT:          /* fallthrough */

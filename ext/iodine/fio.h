@@ -707,6 +707,18 @@ void fio_force_event(intptr_t uuid, enum fio_io_event);
  */
 void fio_suspend(intptr_t uuid);
 
+/**
+ * Temporarily prevents `on_data` events from firing and increases the number
+ * of currently active connections.
+ */
+void fio_pause(intptr_t uuid);
+
+/**
+ * Schedules the `on_data` event and decreases the number of currently active
+ * connections.
+ */
+void fio_resume(intptr_t uuid);
+
 /* *****************************************************************************
 Listening to Incoming Connections
 ***************************************************************************** */
