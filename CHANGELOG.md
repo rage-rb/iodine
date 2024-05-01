@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.1.0 (2024-05-01)
+
+**Update**: Implement graceful shutdown.
+
 #### Change log v.3.0.8 (2024-04-12)
 
 **Fix**: Correctly generate request tags in cluster mode.
