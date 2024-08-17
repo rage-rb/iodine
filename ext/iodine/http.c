@@ -499,7 +499,7 @@ found_file:
     if (!ifrange_hash)
       ifrange_hash = fiobj_hash_string("if-range", 8);
     FIOBJ tmp = fiobj_hash_get2(h->headers, ifrange_hash);
-    if (tmp && fiobj_iseq(tmp, etag_str)) {
+    if (tmp && !fiobj_iseq(tmp, etag_str)) {
       fiobj_hash_delete2(h->headers, range_hash);
     } else {
       tmp = fiobj_hash_get2(h->headers, range_hash);
