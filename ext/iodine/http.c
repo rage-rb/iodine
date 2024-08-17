@@ -460,15 +460,13 @@ no_gzip_support:
       !(S_ISREG(file_data.st_mode) || S_ISLNK(file_data.st_mode)))
     return -1;
 found_file:
-  /* set last-modified */
-  {
-    FIOBJ tmp = fiobj_str_buf(32);
-    fiobj_str_resize(
-        tmp, http_time2str(fiobj_obj2cstr(tmp).data, file_data.st_mtime));
-    http_set_header(h, HTTP_HEADER_LAST_MODIFIED, tmp);
-  }
   /* set cache-control */
   http_set_header(h, HTTP_HEADER_CACHE_CONTROL, fiobj_dup(HTTP_HVALUE_MAX_AGE));
+  /* set last-modified */
+  FIOBJ last_modified_str = fiobj_str_buf(32);
+  fiobj_str_resize(
+      last_modified_str, http_time2str(fiobj_obj2cstr(last_modified_str).data, file_data.st_mtime));
+  http_set_header(h, HTTP_HEADER_LAST_MODIFIED, last_modified_str);
   /* set & test etag */
   FIOBJ etag_str = fiobj_str_buf(1);
   fiobj_str_printf(etag_str, "%lx-%llx", file_data.st_mtime, file_data.st_size);
@@ -494,7 +492,7 @@ found_file:
     if (!ifrange_hash)
       ifrange_hash = fiobj_hash_string("if-range", 8);
     FIOBJ tmp = fiobj_hash_get2(h->headers, ifrange_hash);
-    if (tmp && !fiobj_iseq(tmp, etag_str)) {
+    if (tmp && !(fiobj_iseq(tmp, etag_str) || fiobj_iseq(tmp, last_modified_str))) {
       fiobj_hash_delete2(h->headers, range_hash);
     } else {
       tmp = fiobj_hash_get2(h->headers, range_hash);
