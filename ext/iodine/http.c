@@ -470,13 +470,8 @@ found_file:
   /* set cache-control */
   http_set_header(h, HTTP_HEADER_CACHE_CONTROL, fiobj_dup(HTTP_HVALUE_MAX_AGE));
   /* set & test etag */
-  uint64_t etag = (uint64_t)file_data.st_size;
-  etag ^= (uint64_t)file_data.st_mtime;
-  etag = fiobj_hash_string(&etag, sizeof(uint64_t));
-  FIOBJ etag_str = fiobj_str_buf(32);
-  fiobj_str_resize(etag_str,
-                   fio_base64_encode(fiobj_obj2cstr(etag_str).data,
-                                     (void *)&etag, sizeof(uint64_t)));
+  FIOBJ etag_str = fiobj_str_buf(1);
+  fiobj_str_printf(etag_str, "%lx-%llx", file_data.st_mtime, file_data.st_size);
   /* set */
   http_set_header(h, HTTP_HEADER_ETAG, etag_str);
   /* test */
