@@ -524,7 +524,7 @@ found_file:
         /* we ignore multimple ranges, only responding with the first range. */
         if (start_at < 0) {
           if (0 - start_at < file_data.st_size) {
-            offset = file_data.st_size - start_at;
+            offset = file_data.st_size + start_at;
             length = 0 - start_at;
           }
         } else if (end_at) {
