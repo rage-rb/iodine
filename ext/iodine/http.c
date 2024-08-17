@@ -506,26 +506,30 @@ found_file:
         char *pos = range.data + 6;
         int64_t start_at = 0, end_at = 0;
         start_at = fio_atol(&pos);
-        if (start_at >= file_data.st_size)
-          goto open_file;
         if (start_at >= 0) {
           pos++;
           end_at = fio_atol(&pos);
-          if (end_at <= 0)
-            goto open_file;
         }
         /* we ignore multimple ranges, only responding with the first range. */
-        if (start_at < 0) {
-          if (0 - start_at < file_data.st_size) {
-            offset = file_data.st_size + start_at;
-            length = 0 - start_at;
-          }
-        } else if (end_at) {
+        if (end_at) {
+          /* "Range bytes=100-200": bytes between `start_at` and `end_at` are requested */
+          if (start_at < 0 || end_at <= start_at || end_at >= length)
+            goto invalid_range;
+
           offset = start_at;
           length = end_at - start_at + 1;
-          if (length + start_at > file_data.st_size || length <= 0)
-            length = length - start_at;
+        } else if (start_at < 0) {
+          /* "Range bytes=-100": the last `start_at` bytes are requested */
+          if (0 - start_at >= length)
+            goto invalid_range;
+
+          offset = file_data.st_size + start_at;
+          length = 0 - start_at;
         } else {
+          /* "Range bytes=100-": all bytes starting at `start_at` are requested */
+          if (start_at >= length)
+            goto invalid_range;
+
           offset = start_at;
           length = length - start_at;
         }
@@ -605,6 +609,14 @@ open_file:
   }
   http_sendfile(h, file, length, offset);
   return 0;
+invalid_range:
+  {
+    FIOBJ crange = fiobj_str_buf(1);
+    fiobj_str_printf(crange, "bytes */%lu", (unsigned long)file_data.st_size);
+    http_set_header(h, HTTP_HEADER_CONTENT_RANGE, crange);
+    http_send_error(h, 416);
+    return 0;
+  }
 }
 
 /**
