@@ -460,23 +460,16 @@ no_gzip_support:
       !(S_ISREG(file_data.st_mode) || S_ISLNK(file_data.st_mode)))
     return -1;
 found_file:
-  /* set last-modified */
-  {
-    FIOBJ tmp = fiobj_str_buf(32);
-    fiobj_str_resize(
-        tmp, http_time2str(fiobj_obj2cstr(tmp).data, file_data.st_mtime));
-    http_set_header(h, HTTP_HEADER_LAST_MODIFIED, tmp);
-  }
   /* set cache-control */
   http_set_header(h, HTTP_HEADER_CACHE_CONTROL, fiobj_dup(HTTP_HVALUE_MAX_AGE));
+  /* set last-modified */
+  FIOBJ last_modified_str = fiobj_str_buf(32);
+  fiobj_str_resize(
+      last_modified_str, http_time2str(fiobj_obj2cstr(last_modified_str).data, file_data.st_mtime));
+  http_set_header(h, HTTP_HEADER_LAST_MODIFIED, last_modified_str);
   /* set & test etag */
-  uint64_t etag = (uint64_t)file_data.st_size;
-  etag ^= (uint64_t)file_data.st_mtime;
-  etag = fiobj_hash_string(&etag, sizeof(uint64_t));
-  FIOBJ etag_str = fiobj_str_buf(32);
-  fiobj_str_resize(etag_str,
-                   fio_base64_encode(fiobj_obj2cstr(etag_str).data,
-                                     (void *)&etag, sizeof(uint64_t)));
+  FIOBJ etag_str = fiobj_str_buf(1);
+  fiobj_str_printf(etag_str, "%lx-%llx", file_data.st_mtime, file_data.st_size);
   /* set */
   http_set_header(h, HTTP_HEADER_ETAG, etag_str);
   /* test */
@@ -499,7 +492,7 @@ found_file:
     if (!ifrange_hash)
       ifrange_hash = fiobj_hash_string("if-range", 8);
     FIOBJ tmp = fiobj_hash_get2(h->headers, ifrange_hash);
-    if (tmp && fiobj_iseq(tmp, etag_str)) {
+    if (tmp && !(fiobj_iseq(tmp, etag_str) || fiobj_iseq(tmp, last_modified_str))) {
       fiobj_hash_delete2(h->headers, range_hash);
     } else {
       tmp = fiobj_hash_get2(h->headers, range_hash);
@@ -513,26 +506,30 @@ found_file:
         char *pos = range.data + 6;
         int64_t start_at = 0, end_at = 0;
         start_at = fio_atol(&pos);
-        if (start_at >= file_data.st_size)
-          goto open_file;
         if (start_at >= 0) {
           pos++;
           end_at = fio_atol(&pos);
-          if (end_at <= 0)
-            goto open_file;
         }
         /* we ignore multimple ranges, only responding with the first range. */
-        if (start_at < 0) {
-          if (0 - start_at < file_data.st_size) {
-            offset = file_data.st_size - start_at;
-            length = 0 - start_at;
-          }
-        } else if (end_at) {
+        if (end_at) {
+          /* "Range bytes=100-200": bytes between `start_at` and `end_at` are requested */
+          if (start_at < 0 || end_at <= start_at || end_at >= length)
+            goto invalid_range;
+
           offset = start_at;
           length = end_at - start_at + 1;
-          if (length + start_at > file_data.st_size || length <= 0)
-            length = length - start_at;
+        } else if (start_at < 0) {
+          /* "Range bytes=-100": the last `start_at` bytes are requested */
+          if (0 - start_at >= length)
+            goto invalid_range;
+
+          offset = file_data.st_size + start_at;
+          length = 0 - start_at;
         } else {
+          /* "Range bytes=100-": all bytes starting at `start_at` are requested */
+          if (start_at >= length)
+            goto invalid_range;
+
           offset = start_at;
           length = length - start_at;
         }
@@ -612,6 +609,14 @@ open_file:
   }
   http_sendfile(h, file, length, offset);
   return 0;
+invalid_range:
+  {
+    FIOBJ crange = fiobj_str_buf(1);
+    fiobj_str_printf(crange, "bytes */%lu", (unsigned long)file_data.st_size);
+    http_set_header(h, HTTP_HEADER_CONTENT_RANGE, crange);
+    http_send_error(h, 416);
+    return 0;
+  }
 }
 
 /**
