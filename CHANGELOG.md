@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.3.3.0 (2024-08-18)
+
+**Update**: Improvements and fixes for the static file service.
+
 #### Change log v.3.2.0 (2024-07-15)
 
 **Update**: Explicitly undefine the alloc function on IodineObjectStorage.
