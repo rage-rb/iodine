@@ -2077,7 +2077,7 @@ static size_t fio_poll(void) {
         epoll_wait(internal[j].data.fd, events, FIO_POLL_MAX_EVENTS, 0);
     if (active_count > 0) {
       for (int i = 0; i < active_count; i++) {
-        if (events[i].events & (~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP))) {
+        if (events[i].events & (~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR))) {
           // errors are hendled as disconnections (on_close)
           fio_force_close_in_poll(fd2uuid(events[i].data.fd));
         } else {
@@ -2090,9 +2090,12 @@ static size_t fio_poll(void) {
             fio_defer_push_task(deferred_on_data,
                                 (void *)fd2uuid(events[i].data.fd), NULL);
           }
-          if (events[i].events & (EPOLLHUP | EPOLLRDHUP)) {
-            fio_defer_push_task(deferred_force_close_in_poll,
-                                (void *)fd2uuid(events[i].data.fd), NULL);
+          if (events[i].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
+            if(fd_data(events[i].data.fd).internal) {
+              fio_force_close_in_poll(fd2uuid(events[i].data.fd));
+            } else {
+              fio_clear_fd((intptr_t)events[i].data.fd, 0);
+            }
           }
         }
       } // end for loop
