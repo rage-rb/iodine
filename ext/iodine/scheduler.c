@@ -15,7 +15,8 @@
 static ID call_id;
 static uint8_t ATTACH_ON_READ_READY_CALLBACK;
 static uint8_t ATTACH_ON_WRITE_READY_CALLBACK;
-static VALUE timeout_args[1];
+static VALUE e_timeout_args[1];
+static VALUE e_closed_args[1];
 
 /* *****************************************************************************
 Fiber Scheduler API
@@ -35,6 +36,10 @@ typedef struct {
 
 static void iodine_scheduler_task_close(intptr_t uuid, fio_protocol_s *fio_protocol) {
   scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
+
+  if (!protocol->fulfilled) {
+    IodineCaller.call2(protocol->block, call_id, 1, e_closed_args);
+  }
 
   IodineStore.remove(protocol->block);
   fio_free(protocol);
@@ -57,7 +62,7 @@ static void iodine_scheduler_task_timeout(intptr_t uuid, fio_protocol_s *fio_pro
   scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
 
   if (!protocol->fulfilled) {
-    IodineCaller.call2(protocol->block, call_id, 1, timeout_args);
+    IodineCaller.call2(protocol->block, call_id, 1, e_timeout_args);
     protocol->fulfilled = 1;
   }
 }
@@ -178,7 +183,8 @@ Scheduler initialization
 
 void iodine_scheduler_initialize(void) {
   call_id = rb_intern2("call", 4);
-  timeout_args[0] = UINT2NUM(ETIMEDOUT);
+  e_timeout_args[0] = INT2NUM(-ETIMEDOUT);
+  e_closed_args[0] = INT2NUM(-EIO);
 
   VALUE SchedulerModule = rb_define_module_under(IodineModule, "Scheduler");
 

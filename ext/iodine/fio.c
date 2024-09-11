@@ -363,6 +363,8 @@ typedef struct {
   uint8_t open;
   /** indicated that the connection should be closed. */
   uint8_t close;
+  /** indicates whether the fd is coming from the Fiber Scheduler. */
+  uint8_t internal;
   /** peer address length */
   uint8_t addr_len;
   /** peer address */
@@ -2075,7 +2077,7 @@ static size_t fio_poll(void) {
         epoll_wait(internal[j].data.fd, events, FIO_POLL_MAX_EVENTS, 0);
     if (active_count > 0) {
       for (int i = 0; i < active_count; i++) {
-        if (events[i].events & (~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP))) {
+        if (events[i].events & (~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR))) {
           // errors are hendled as disconnections (on_close)
           fio_force_close_in_poll(fd2uuid(events[i].data.fd));
         } else {
@@ -2088,9 +2090,12 @@ static size_t fio_poll(void) {
             fio_defer_push_task(deferred_on_data,
                                 (void *)fd2uuid(events[i].data.fd), NULL);
           }
-          if (events[i].events & (EPOLLHUP | EPOLLRDHUP)) {
-            fio_defer_push_task(deferred_force_close_in_poll,
-                                (void *)fd2uuid(events[i].data.fd), NULL);
+          if (events[i].events & (EPOLLHUP | EPOLLRDHUP | EPOLLERR)) {
+            if(fd_data(events[i].data.fd).internal) {
+              fio_force_close_in_poll(fd2uuid(events[i].data.fd));
+            } else {
+              fio_clear_fd((intptr_t)events[i].data.fd, 0);
+            }
           }
         }
       } // end for loop
@@ -2226,8 +2231,11 @@ static size_t fio_poll(void) {
                             NULL);
       }
       if (events[i].flags & (EV_EOF | EV_ERROR)) {
-        fio_defer_push_task(deferred_force_close_in_poll,
-                            (void *)fd2uuid(events[i].udata), NULL);
+        if(fd_data(events[i].udata).internal) {
+          fio_force_close_in_poll(fd2uuid(events[i].udata));
+        } else {
+          fio_clear_fd((intptr_t)events[i].udata, 0);
+        }
       }
     }
   } else if (active_count < 0) {
@@ -4033,6 +4041,7 @@ static int fio_attach__internal(void *uuid_, void *protocol_) {
   }
   fio_protocol_s *old_pr = uuid_data(uuid).protocol;
   uuid_data(uuid).open = 1;
+  uuid_data(uuid).internal = 1;
   uuid_data(uuid).protocol = protocol;
   touchfd(fio_uuid2fd(uuid));
   fio_unlock(&uuid_data(uuid).protocol_lock);
@@ -4093,6 +4102,7 @@ static int fio_watch__internal(void *uuid_, void *protocol_) {
 
   fio_protocol_s *old_pr = uuid_data(uuid).protocol;
   uuid_data(uuid).open = 1;
+  uuid_data(uuid).internal = 0;
   uuid_data(uuid).protocol = protocol;
   touchfd(fio_uuid2fd(uuid));
   fio_unlock(&uuid_data(uuid).protocol_lock);
