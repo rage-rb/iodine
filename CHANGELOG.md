@@ -6,6 +6,12 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.4.0.0 (2024-09-11)
+
+**Update**: Stop disconnecting from the DB on fork.
+
+**Update**: Fiber Scheduler updates to correctly close file descriptors.
+
 #### Change log v.3.3.0 (2024-08-18)
 
 **Update**: Improvements and fixes for the static file service.
