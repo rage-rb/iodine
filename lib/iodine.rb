@@ -156,23 +156,9 @@ require 'rack/handler/iodine' unless defined? ::Iodine::Rack::IODINE_RACK_LOADED
 
 ### Automatic ActiveRecord and Sequel support for forking (preventing connection sharing)
 Iodine.on_state(:before_fork)  do
-  if defined?(ActiveRecord) && defined?(ActiveRecord::Base) && ActiveRecord::Base.respond_to?(:connection)
-    begin
-      ActiveRecord::Base.connection.disconnect!
-    rescue
-    end
-  end
   if defined?(Sequel)
     begin
       Sequel::DATABASES.each { |database| database.disconnect }
-    rescue
-    end
-  end
-end
-Iodine.on_state(:after_fork)  do
-  if defined?(ActiveRecord) && defined?(ActiveRecord::Base) && ActiveRecord::Base.respond_to?(:establish_connection)
-    begin
-      ActiveRecord::Base.establish_connection
     rescue
     end
   end
