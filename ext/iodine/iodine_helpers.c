@@ -470,24 +470,6 @@ static VALUE gen_timestamp(VALUE self) {
   return rb_str_new(buffer, len);
 }
 
-static const char request_tag_seed[] = "abcdefghijklmnopqrstuvwxyz0123456789";
-static const uint8_t request_tag_len = 16;
-
-/**
-Generate a request tag to use in logs.
-*/
-static VALUE gen_request_tag(VALUE self) {
-  char buffer[request_tag_len];
-  uint8_t i, random_index;
-
-  for (i = 0; i < request_tag_len; i++) {
-    random_index = rand() % 36;
-    buffer[i] = request_tag_seed[random_index];
-  }
-
-  return rb_str_new(buffer, request_tag_len);
-}
-
 /* *****************************************************************************
 Ruby Initialization
 ***************************************************************************** */
@@ -544,7 +526,6 @@ Results:
   rb_define_module_function(tmp, "parse_urlencoded_nested_query", parse_urlencoded_nested_query, 1);
   rb_define_module_function(tmp, "parse_multipart", parse_multipart, 2);
   rb_define_module_function(tmp, "gen_timestamp", gen_timestamp, 0);
-  rb_define_module_function(tmp, "gen_request_tag", gen_request_tag, 0);
 
   /*
 The monkey-patched methods are in this module, allowing Iodine::Rack::Utils to

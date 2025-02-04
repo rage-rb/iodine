@@ -72,6 +72,9 @@ static rb_encoding *IodineBinaryEncoding;
 
 static uint8_t support_xsendfile = 0;
 
+static const char request_tag_seed[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+static const uint8_t request_tag_len = 16;
+
 #define rack_declare(rack_name) static VALUE rack_name
 
 #define rack_set(rack_name, str)                                               \
@@ -106,8 +109,8 @@ rack_declare(XSENDFILE);             // for X-Sendfile support
 rack_declare(XSENDFILE_TYPE);        // for X-Sendfile support
 rack_declare(XSENDFILE_TYPE_HEADER); // for X-Sendfile support
 rack_declare(CONTENT_LENGTH_HEADER); // for X-Sendfile support
-rack_declare(IODINE_REQUEST_ID);
-rack_declare(IODINE_HAS_BODY);
+rack_declare(RAGE_HAS_BODY);
+rack_declare(RAGE_REQUEST_ID);
 
 /* used internally to handle requests */
 typedef struct {
@@ -345,7 +348,20 @@ static inline VALUE copy2env(iodine_http_request_handle_s *handle) {
   rb_hash_aset(env, PATH_INFO,
                rb_enc_str_new(tmp.data, tmp.len, IodineBinaryEncoding));
 
-  rb_hash_aset(env, IODINE_HAS_BODY, (h->body) ? Qtrue : Qfalse);
+  rb_hash_aset(env, RAGE_HAS_BODY, (h->body) ? Qtrue : Qfalse);
+
+  /* generate the request ID */
+  {
+    char buffer[request_tag_len];
+    uint8_t i, random_index;
+
+    for (i = 0; i < request_tag_len; i++) {
+      random_index = rand() % 36;
+      buffer[i] = request_tag_seed[random_index];
+    }
+
+    rb_hash_aset(env, RAGE_REQUEST_ID, rb_str_new(buffer, request_tag_len));
+  }
 
   if (h->query) {
     tmp = fiobj_obj2cstr(h->query);
@@ -952,8 +968,8 @@ static void initialize_env_template(void) {
   rb_hash_aset(env_template_no_upgrade, REQUEST_METHOD, QUERY_STRING);
   rb_hash_aset(env_template_no_upgrade, SERVER_NAME, QUERY_STRING);
   rb_hash_aset(env_template_no_upgrade, SERVER_PROTOCOL, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, IODINE_REQUEST_ID, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, IODINE_HAS_BODY, QUERY_STRING);
+  rb_hash_aset(env_template_no_upgrade, RAGE_HAS_BODY, QUERY_STRING);
+  rb_hash_aset(env_template_no_upgrade, RAGE_REQUEST_ID, QUERY_STRING);
 
   /* WebSocket upgrade support */
   env_template_websockets = rb_hash_dup(env_template_no_upgrade);
@@ -1212,9 +1228,6 @@ void iodine_init_http(void) {
   rack_autoset(HTTP_CONNECTION);
   rack_autoset(HTTP_HOST);
 
-  rack_autoset(IODINE_REQUEST_ID);
-  rack_autoset(IODINE_HAS_BODY);
-
   rack_set(HTTP_SCHEME, "http");
   rack_set(HTTPS_SCHEME, "https");
   rack_set(QUERY_ESTRING, "");
@@ -1229,6 +1242,9 @@ void iodine_init_http(void) {
   rack_set(IODINE_R_HIJACK_IO, "rack.hijack_io");
   rack_set(IODINE_R_HIJACK, "rack.hijack");
   rack_set(IODINE_R_HIJACK_CB, "iodine.hijack_cb");
+
+  rack_set(RAGE_HAS_BODY, "rage.has_body");
+  rack_set(RAGE_REQUEST_ID, "rage.request_id");
 
   rack_set(RACK_UPGRADE, "rack.upgrade");
   rack_set(RACK_UPGRADE_Q, "rack.upgrade?");

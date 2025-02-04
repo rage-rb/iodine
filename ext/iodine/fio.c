@@ -4680,7 +4680,7 @@ static void fio_worker_startup(void) {
     fio_state_callback_clear(FIO_CALL_ON_START);
   }
 
-  /* used in `gen_request_tag` */
+  /* used when generating request IDs */
   srand(time(0) + (getpid() << 8));
 
   if (fio_data->workers == 1) {
