@@ -17,6 +17,7 @@ static uint8_t ATTACH_ON_READ_READY_CALLBACK;
 static uint8_t ATTACH_ON_WRITE_READY_CALLBACK;
 static VALUE e_timeout_args[1];
 static VALUE e_closed_args[1];
+static VALUE e_not_ready_args[1];
 
 /* *****************************************************************************
 Fiber Scheduler API
@@ -58,6 +59,25 @@ static void iodine_scheduler_task_perform(intptr_t uuid, fio_protocol_s *fio_pro
   (void)uuid;
 }
 
+static void iodine_scheduler_task_not_ready(void *uuid, void *fio_protocol) {
+  scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
+
+  if (!protocol->fulfilled) {
+    IodineCaller.call2(protocol->block, call_id, 1, e_not_ready_args);
+    protocol->fulfilled = 1;
+  }
+
+  (void)uuid;
+}
+
+static void iodine_scheduler_task_deferred_not_ready(intptr_t uuid, fio_protocol_s *fio_protocol) {
+  // if there's a read event, `fio_defer` will give it time to fulfill the protocol first;
+  // otherwise, the fiber will be resumed with `false` indicating the IO is not ready
+  fio_defer(iodine_scheduler_task_not_ready, (void *)uuid, (void *)fio_protocol);
+
+  (void)uuid;
+}
+
 static void iodine_scheduler_task_timeout(intptr_t uuid, fio_protocol_s *fio_protocol) {
   scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
 
@@ -74,8 +94,11 @@ static VALUE iodine_scheduler_attach(VALUE self, VALUE r_fd, VALUE r_waittype, V
   Check_Type(r_waittype, T_FIXNUM);
   size_t waittype = FIX2UINT(r_waittype);
 
-  Check_Type(r_timeout, T_FIXNUM);
-  size_t timeout = FIX2UINT(r_timeout);
+  size_t timeout;
+  if (r_timeout != Qnil) {
+    Check_Type(r_timeout, T_FIXNUM);
+    timeout = FIX2UINT(r_timeout);
+  }
 
   fio_set_non_block(fd);
 
@@ -112,8 +135,14 @@ static VALUE iodine_scheduler_attach(VALUE self, VALUE r_fd, VALUE r_waittype, V
   }
 
   intptr_t uuid = fio_fd2uuid(fd);
-  if (timeout) {
+
+  if (r_timeout == Qnil) {
+    fio_timeout_set(uuid, 0);
+  } else if (timeout) {
     fio_timeout_set(uuid, timeout);
+  } else {
+    // timeout was explicitly set to 0 - return right away
+    protocol->p.on_ready = iodine_scheduler_task_deferred_not_ready;
   }
 
   fio_watch(uuid, (fio_protocol_s *)protocol);
@@ -185,6 +214,7 @@ void iodine_scheduler_initialize(void) {
   call_id = rb_intern2("call", 4);
   e_timeout_args[0] = INT2NUM(-ETIMEDOUT);
   e_closed_args[0] = INT2NUM(-EIO);
+  e_not_ready_args[0] = Qfalse;
 
   VALUE SchedulerModule = rb_define_module_under(IodineModule, "Scheduler");
 

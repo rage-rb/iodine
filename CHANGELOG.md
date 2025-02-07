@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.4.1.0 (2025-02-07)
+
+**Update**: Correctly handle `0` timeouts.
+
 #### Change log v.4.0.0 (2024-09-11)
 
 **Update**: Stop disconnecting from the DB on fork.
