@@ -1,5 +1,3 @@
-# frozen_string_literal: true
-
 RSpec.describe Iodine::Rack::Utils do
   describe "#parse_nested_query" do
     subject { described_class.parse_nested_query(q) }
@@ -197,7 +195,7 @@ RSpec.describe Iodine::Rack::Utils do
     end
 
     context "with array encoded values" do
-      let(:q) { "ross[]=m%40rried+5+time%24" }
+      let(:q) { "ross%5B%5D=m%40rried+5+time%24" }
 
       it "works correctly" do
         expect(subject).to eq({ ross: ["m@rried 5 time$"] })
@@ -205,7 +203,7 @@ RSpec.describe Iodine::Rack::Utils do
     end
 
     context "with hash encoded values" do
-      let(:q) { "users[ross]=m%40rried+5+time%24" }
+      let(:q) { "users%5Bross%5D=m%40rried+5+time%24" }
 
       it "works correctly" do
         expect(subject).to eq({ users: { ross: "m@rried 5 time$" } })

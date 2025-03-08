@@ -241,7 +241,6 @@ Convert query string into a Ruby object in (almost always) one pass with no recu
 
 */
 static VALUE parse_nested_query_internal(char *str, size_t len) {
-  uint8_t should_decode = 0;
   VALUE params = rb_hash_new();
 
   char *pos = str, *k_pos = str, *v_pos = str;
@@ -253,19 +252,11 @@ static VALUE parse_nested_query_internal(char *str, size_t len) {
     if (*k_pos == '=') { // plain param
       v_pos = k_pos + 1;
       while (*v_pos != '&' && v_pos < end) {
-        if (*v_pos == '%' || *v_pos == '+') {
-          should_decode = 1;
-        }
         v_pos++;
       }
 
       VALUE k = ID2SYM(rb_intern2(pos, k_pos - pos)), v = rb_str_new(k_pos + 1, v_pos - k_pos - 1);
-      if (should_decode) {
-        rb_hash_aset(params, k, url_decode_inplace(Qnil, v));
-        should_decode = 0;
-      } else {
-        rb_hash_aset(params, k, v);
-      }
+      rb_hash_aset(params, k, v);
       pos = k_pos = v_pos + 1;
 
     } else if (*k_pos == '[') { // things are about to get rough now
@@ -391,17 +382,8 @@ static VALUE parse_nested_query_internal(char *str, size_t len) {
       // write the final object into `params`
       //
 
-      for (v_pos = pos + 1; *v_pos != '&' && v_pos < end; v_pos++) {
-        if (*v_pos == '%' || *v_pos == '+') {
-          should_decode = 1;
-        }
-      }
-
+      for (v_pos = pos + 1; *v_pos != '&' && v_pos < end; v_pos++) {}
       v = rb_str_new(pos + 1, v_pos - pos - 1);
-      if (should_decode) {
-        url_decode_inplace(Qnil, v);
-        should_decode = 0;
-      }
 
       if (arr != Qnil) {
         rb_ary_push(arr, v);
@@ -425,6 +407,7 @@ static VALUE parse_nested_query_internal(char *str, size_t len) {
 Convert query string into a Ruby object.
 */
 static VALUE parse_nested_query(VALUE self, VALUE r_str) {
+  url_decode_inplace(Qnil, r_str);
   return parse_nested_query_internal(RSTRING_PTR(r_str), RSTRING_LEN(r_str));
   (void)self;
 }
