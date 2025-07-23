@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.4.2.0 (2025-07-23)
+
+**Update**: Add `Iodine.subscribed?`.
+
 #### Change log v.4.1.0 (2025-02-07)
 
 **Update**: Correctly handle `0` timeouts.

@@ -692,6 +692,30 @@ static VALUE iodine_pubsub_unsubscribe(VALUE self, VALUE name) {
   return ret;
 }
 
+static VALUE iodine_pubsub_is_subscribed(VALUE self, VALUE name) {
+  // clang-format on
+  iodine_connection_data_s *c = NULL;
+  fio_lock_i *s_lock = &sub_lock;
+  fio_subhash_s *subs = &sub_global;
+  VALUE ret;
+  if (TYPE(self) != T_MODULE) {
+    c = iodine_connection_validate_data(self);
+    if (!c || c->info.uuid == -1) {
+      return Qfalse; /* the connection is closed */
+    }
+    s_lock = &c->lock;
+    subs = &c->subscriptions;
+  }
+  if (TYPE(name) == T_SYMBOL)
+    name = rb_sym2str(name);
+  Check_Type(name, T_STRING);
+  fio_lock(s_lock);
+  ret = iodine_sub_find(subs, IODINE_RSTRINFO(name));
+  fio_unlock(s_lock);
+
+  return ret;
+}
+
 // clang-format off
 /**
 Publishes a message to a channel.
@@ -935,6 +959,8 @@ void iodine_connection_init(void) {
   // define global methods
   rb_define_module_function(IodineModule, "subscribe", iodine_pubsub_subscribe,
                             -1);
+  rb_define_module_function(IodineModule, "subscribed?",
+                            iodine_pubsub_is_subscribed, 1);
   rb_define_module_function(IodineModule, "unsubscribe",
                             iodine_pubsub_unsubscribe, 1);
   rb_define_module_function(IodineModule, "publish", iodine_pubsub_publish, -1);
