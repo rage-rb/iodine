@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.4.2.1 (2025-07-26)
+
+**Update**: Add `iodine_sub_find`.
+
 #### Change log v.4.2.0 (2025-07-23)
 
 **Update**: Add `Iodine.subscribed?`.

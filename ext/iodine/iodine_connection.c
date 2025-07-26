@@ -60,6 +60,12 @@ static inline void iodine_sub_add(fio_subhash_s *store, subscription_s *sub) {
   fio_str_info_s ch = fio_subscription_channel(sub);
   fio_subhash_insert(store, fiobj_hash_string(ch.data, ch.len), ch, sub, NULL);
 }
+static inline VALUE iodine_sub_find(fio_subhash_s *store, fio_str_info_s channel) {
+  if (fio_subhash_find(store, fiobj_hash_string(channel.data, channel.len), channel)) {
+    return Qtrue;
+  }
+  return Qfalse;
+}
 static inline void iodine_sub_clear_all(fio_subhash_s *store) {
   fio_subhash_free(store);
 }
