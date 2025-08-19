@@ -1681,6 +1681,15 @@ void fio_state_callback_force(callback_type_e);
 /** Clears all the existing callbacks for the event. */
 void fio_state_callback_clear(callback_type_e);
 
+/** Increments the background tasks counter. */
+void fio_register_background_task();
+
+/** Decrements the background tasks counter. */
+void fio_deregister_background_task();
+
+/** Checks whether the server is about to shut down. */
+uint8_t fio_is_stop_requested();
+
 /* *****************************************************************************
 Lower Level API - for special circumstances, use with care.
 ***************************************************************************** */

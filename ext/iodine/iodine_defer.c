@@ -207,6 +207,30 @@ static VALUE iodine_defer_run(VALUE self) {
   (void)self;
 }
 
+/* Increments the background tasks counter. */
+static VALUE iodine_register_background_task(VALUE self) {
+  fio_register_background_task();
+  return Qtrue;
+  (void)self;
+}
+
+/* Decrements the background tasks counter. */
+static VALUE iodine_deregister_background_task(VALUE self) {
+  fio_deregister_background_task();
+  return Qtrue;
+  (void)self;
+}
+
+/* Checks whether the server is about to shut down. */
+static VALUE iodine_is_stop_requested(VALUE self) {
+  if (fio_is_stop_requested()) {
+    return Qtrue;
+  } else {
+    return Qfalse;
+  }
+  (void)self;
+}
+
 /**
 Runs the required block after the specified number of milliseconds have passed.
 Time is counted only once Iodine started running (using {Iodine.start}).
@@ -399,6 +423,13 @@ void iodine_defer_initialize(void) {
   rb_define_module_function(IodineModule, "run_every", iodine_defer_run_every,
                             -1);
   rb_define_module_function(IodineModule, "on_state", iodine_on_state, 1);
+
+  rb_define_module_function(IodineModule, "task_inc!", iodine_register_background_task,
+                            0);
+  rb_define_module_function(IodineModule, "task_dec!", iodine_deregister_background_task,
+                            0);
+  rb_define_module_function(IodineModule, "stopping?", iodine_is_stop_requested,
+                            0);
 
   STATE_PRE_START = rb_intern("pre_start");
   STATE_BEFORE_FORK = rb_intern("before_fork");

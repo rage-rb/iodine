@@ -390,6 +390,8 @@ typedef struct {
   uint32_t connection_count;
   /* number of currently paused connections */
   uint32_t async_connection_count;
+  uint32_t background_task_count;
+  uint8_t stop_requested;
   /* thread list */
   fio_ls_s thread_ids;
   /* active workers */
@@ -1299,13 +1301,15 @@ static void fio_defer_on_fork(void) {
 }
 
 void fio_graceful_stop(void) {
-  static uint8_t stop_requested;
-
-  if (!fio_data->async_connection_count) {
+  if (!fio_data->async_connection_count && !fio_data->background_task_count) {
     fio_stop();
-  } else if (!stop_requested) {
-    stop_requested = 1;
-    FIO_LOG_INFO("(%d) Waiting for up to 15 seconds to allow active requests to finish...", (int)getpid());
+  } else if (!fio_data->stop_requested) {
+    fio_data->stop_requested = 1;
+    if (fio_data->async_connection_count) {
+      FIO_LOG_INFO("(%d) Waiting for up to 15 seconds to allow active requests to finish...", (int)getpid());
+    } else {
+      FIO_LOG_INFO("(%d) Waiting for up to 15 seconds to allow active background tasks to finish...", (int)getpid());
+    }
     fio_run_every(500, 30, (void (*)(void *))fio_graceful_stop, NULL, (void (*)(void *))fio_stop);
   }
 }
@@ -4314,6 +4318,18 @@ void fio_state_callback_clear_all(void) {
   for (size_t i = 0; i < (FIO_CALL_NEVER + 1); ++i) {
     fio_state_callback_clear((callback_type_e)i);
   }
+}
+
+void fio_register_background_task() {
+  fio_atomic_add(&fio_data->background_task_count, 1);
+}
+
+void fio_deregister_background_task() {
+  fio_atomic_sub(&fio_data->background_task_count, 1);
+}
+
+uint8_t fio_is_stop_requested() {
+  return fio_data->stop_requested;
 }
 
 /* *****************************************************************************
