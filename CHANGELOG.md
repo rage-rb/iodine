@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.4.4.0 (2025-11-28)
+
+**Update**: Update the `rackup` interface.
+
 #### Change log v.4.3.0 (2025-08-19)
 
 **Update**: Add the `task_inc!`, `task_dec!`, `stopping?` methods.

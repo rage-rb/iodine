@@ -1,4 +1,5 @@
 require 'iodine' unless defined?(::Iodine::VERSION)
+require 'rage/cli'
 
 module Iodine
   # Iodine's {Iodine::Rack} module provides a Rack compliant interface (connecting Iodine to Rack) for an HTTP and Websocket Server.
@@ -6,12 +7,7 @@ module Iodine
 
     # Runs a Rack app, as par the Rack handler requirements.
     def self.run(app, options = {})
-      # nested applications... is that a thing?
-      Iodine.listen(service: :http, handler: app, port: options[:Port], address: options[:Host])
-
-      # start Iodine
-      Iodine.start
-
+      Rage::CLI.new([], { port: options[:Port], binding: options[:Host], environment: options[:environment] }).server
       true
     end
 
