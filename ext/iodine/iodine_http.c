@@ -62,6 +62,8 @@ static ID iodine_call_proc_id;
 static ID fiber_result_var_id;
 static VALUE http_wait_directive;
 static ID fiber_id_method_id;
+static ID iodine_env_var_id;
+static ID iodine_upgrade_var_id;
 
 static VALUE env_template_no_upgrade;
 static VALUE env_template_websockets;
@@ -681,6 +683,8 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
 
   if (handle->type == IODINE_HTTP_DEFERRED) {
     rbresponse = rb_ivar_get((VALUE)h->fiber, fiber_result_var_id);
+    env = rb_ivar_get((VALUE)h->fiber, iodine_env_var_id);
+    handle->upgrade = FIX2INT(rb_ivar_get((VALUE)h->fiber, iodine_upgrade_var_id));
   } else {
     // create / register env variable
     env = copy2env(handle);
@@ -698,7 +702,10 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
   tmp = rb_ary_entry(rbresponse, 0);
   // rack will return `[:__http_defer__, fiber_to_wait_on]` in case the request needs to be paused
   if (TYPE(tmp) == T_SYMBOL && tmp == http_wait_directive) {
-    h->fiber = (void *)IodineStore.add(rb_ary_entry(rbresponse, 1));
+    VALUE fiber = rb_ary_entry(rbresponse, 1);
+    rb_ivar_set(fiber, iodine_env_var_id, env);
+    rb_ivar_set(fiber, iodine_upgrade_var_id, INT2FIX(handle->upgrade));
+    h->fiber = (void *)IodineStore.add(fiber);
     goto defer;
   }
 
@@ -741,8 +748,7 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
   // review each header and write it to the response.
   rb_hash_foreach(response_headers, for_each_header_data, (VALUE)(h));
   // review for upgrade.
-  if (handle->type != IODINE_HTTP_DEFERRED && (intptr_t)h->status < 300 &&
-      ruby2c_review_upgrade(handle, rbresponse, env))
+  if ((intptr_t)h->status < 300 && ruby2c_review_upgrade(handle, rbresponse, env))
     goto external_done;
   // send the request body.
   if (ruby2c_response_send(handle, rbresponse, env))
@@ -882,7 +888,12 @@ static void on_rack_upgrade(http_s *h, char *proto, size_t len) {
   //   return;
   // }
   IodineCaller.enterGVL(iodine_handle_request_in_GVL, &handle);
-  iodine_perform_handle_action(handle);
+
+  if (handle.type == IODINE_HTTP_WAIT) {
+    http_pause(handle.h, http_pause_request_handler);
+  } else {
+    iodine_perform_handle_action(handle);
+  }
   (void)proto;
   (void)len;
 }
@@ -1245,6 +1256,8 @@ void iodine_init_http(void) {
   fiber_result_var_id = rb_intern("@__result");
   http_wait_directive = ID2SYM(rb_intern("__http_defer__"));
   fiber_id_method_id = rb_intern("__get_id");
+  iodine_env_var_id = rb_intern("@__iodine_env");
+  iodine_upgrade_var_id = rb_intern("@__iodine_upgrade");
 
   IodineUTF8Encoding = rb_enc_find("UTF-8");
   IodineBinaryEncoding = rb_enc_find("binary");
