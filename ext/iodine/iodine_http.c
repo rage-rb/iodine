@@ -675,16 +675,19 @@ Handling HTTP requests
 
 static inline void *iodine_handle_request_in_GVL(void *handle_) {
   iodine_http_request_handle_s *handle = handle_;
-  VALUE rbresponse = 0;
-  VALUE env = 0, tmp;
+  VALUE rbresponse = Qnil;
+  VALUE env = Qnil, tmp;
   http_s *h = handle->h;
   if (!h->udata)
     goto err_not_found;
 
   if (handle->type == IODINE_HTTP_DEFERRED) {
     rbresponse = rb_ivar_get((VALUE)h->fiber, fiber_result_var_id);
-    env = rb_ivar_get((VALUE)h->fiber, iodine_env_var_id);
-    handle->upgrade = FIX2INT(rb_ivar_get((VALUE)h->fiber, iodine_upgrade_var_id));
+    VALUE upgrade_val = rb_ivar_get((VALUE)h->fiber, iodine_upgrade_var_id);
+    if (upgrade_val != Qnil) {
+      env = rb_ivar_get((VALUE)h->fiber, iodine_env_var_id);
+      handle->upgrade = FIX2INT(upgrade_val);
+    }
   } else {
     // create / register env variable
     env = copy2env(handle);
@@ -703,8 +706,10 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
   // rack will return `[:__http_defer__, fiber_to_wait_on]` in case the request needs to be paused
   if (TYPE(tmp) == T_SYMBOL && tmp == http_wait_directive) {
     VALUE fiber = rb_ary_entry(rbresponse, 1);
-    rb_ivar_set(fiber, iodine_env_var_id, env);
-    rb_ivar_set(fiber, iodine_upgrade_var_id, INT2FIX(handle->upgrade));
+    if (handle->upgrade != IODINE_UPGRADE_NONE) {
+      rb_ivar_set(fiber, iodine_env_var_id, env);
+      rb_ivar_set(fiber, iodine_upgrade_var_id, INT2FIX(handle->upgrade));
+    }
     h->fiber = (void *)IodineStore.add(fiber);
     goto defer;
   }
@@ -748,7 +753,8 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
   // review each header and write it to the response.
   rb_hash_foreach(response_headers, for_each_header_data, (VALUE)(h));
   // review for upgrade.
-  if ((intptr_t)h->status < 300 && ruby2c_review_upgrade(handle, rbresponse, env))
+  if ((intptr_t)h->status < 300 && env != Qnil &&
+      ruby2c_review_upgrade(handle, rbresponse, env))
     goto external_done;
   // send the request body.
   if (ruby2c_response_send(handle, rbresponse, env))
