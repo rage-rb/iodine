@@ -235,15 +235,24 @@ static void iodine_sse_on_shutdown(http_sse_s *sse) {
                                Qnil);
 }
 static void iodine_sse_on_close(http_sse_s *sse) {
+  if (http_sse2uuid(sse) == -1) {
+    // Connection was already closed, skip silently
+    return;
+  }
   iodine_connection_fire_event((VALUE)sse->udata, IODINE_CONNECTION_ON_CLOSE,
                                Qnil);
 }
 
 static void iodine_sse_on_open(http_sse_s *sse) {
+  intptr_t uuid = http_sse2uuid(sse);
+  if (uuid == -1) {
+    // Connection was closed before on_open could fire, skip silently
+    return;
+  }
   VALUE h = (VALUE)sse->udata;
   iodine_connection_s *c = iodine_connection_CData(h);
   c->arg = sse;
-  c->uuid = http_sse2uuid(sse);
+  c->uuid = uuid;
   iodine_connection_fire_event(h, IODINE_CONNECTION_ON_OPEN, Qnil);
   sse->on_ready = iodine_sse_on_ready;
   fio_force_event(c->uuid, FIO_EVENT_ON_READY);
