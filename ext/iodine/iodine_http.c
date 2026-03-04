@@ -227,10 +227,6 @@ static void iodine_sse_on_shutdown(http_sse_s *sse) {
                                Qnil);
 }
 static void iodine_sse_on_close(http_sse_s *sse) {
-  if (http_sse2uuid(sse) == -1) {
-    // Connection was already closed, skip silently
-    return;
-  }
   iodine_connection_fire_event((VALUE)sse->udata, IODINE_CONNECTION_ON_CLOSE,
                                Qnil);
 }
