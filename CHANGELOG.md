@@ -6,6 +6,17 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.1.0 (2026-03-04)
+
+**Update**: Verify SSE connection are open before calling the protocol object
+**Update**: Invert upgrade flow to move the upgrade decisions to the framework level
+
+#### Change log v.5.0.0 (2026-02-25)
+
+**Update**: Stop formatting SSE events
+**Update**: Update accept header check for SSE
+**Update**: Support fiber pauses during upgrades
+
 #### Change log v.4.4.0 (2025-11-28)
 
 **Update**: Update the `rackup` interface.
