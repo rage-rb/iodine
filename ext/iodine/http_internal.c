@@ -12,53 +12,12 @@ Feel free to copy, use and enjoy according to the license provided.
 Internal Request / Response Handlers
 ***************************************************************************** */
 
+/* Used by HTTP client response handler for WebSocket upgrade detection */
 static uint64_t http_upgrade_hash = 0;
-
-static inline uint8_t http_accept_item_is_sse(char *item, size_t len) {
-  while (len && (*item == ' ' || *item == '\t')) {
-    ++item;
-    --len;
-  }
-  while (len && (item[len - 1] == ' ' || item[len - 1] == '\t')) {
-    --len;
-  }
-  return (len == 17 && !strncasecmp(item, "text/event-stream", 17));
-}
-
-static inline uint8_t http_accepts_sse(FIOBJ value) {
-  if (!value)
-    return 0;
-  if (FIOBJ_TYPE_IS(value, FIOBJ_T_ARRAY)) {
-    for (size_t i = 0; i < fiobj_ary_count(value); ++i) {
-      if (http_accepts_sse(fiobj_ary_index(value, i)))
-        return 1;
-    }
-    return 0;
-  }
-  fio_str_info_s accept = fiobj_obj2cstr(value);
-  if (!accept.data || !accept.len)
-    return 0;
-
-  size_t i = 0;
-  while (i < accept.len) {
-    size_t start = i;
-    while (i < accept.len && accept.data[i] != ';' && accept.data[i] != ',')
-      ++i;
-    if (http_accept_item_is_sse(accept.data + start, i - start))
-      return 1;
-    while (i < accept.len && accept.data[i] != ',')
-      ++i;
-    if (i < accept.len)
-      ++i;
-  }
-  return 0;
-}
 
 /** Use this function to handle HTTP requests.*/
 void http_on_request_handler______internal(http_s *h,
                                            http_settings_s *settings) {
-  if (!http_upgrade_hash)
-    http_upgrade_hash = fiobj_hash_string("upgrade", 7);
   h->udata = settings->udata;
 
   static uint64_t host_hash = 0;
@@ -75,13 +34,7 @@ void http_on_request_handler______internal(http_s *h,
     }
   }
 
-  FIOBJ t = fiobj_hash_get2(h->headers, http_upgrade_hash);
-  if (t)
-    goto upgrade;
-
-  if (http_accepts_sse(
-          fiobj_hash_get2(h->headers, fiobj_obj2hash(HTTP_HEADER_ACCEPT))))
-    goto eventsource;
+  /* Static file handling */
   if (settings->public_folder &&
       (fiobj_obj2cstr(h->method).len != 4 || strncasecmp("post", fiobj_obj2cstr(h->method).data, 4))) {
     fio_str_info_s path_str = fiobj_obj2cstr(h->path);
@@ -91,24 +44,11 @@ void http_on_request_handler______internal(http_s *h,
       return;
     }
   }
+
+  /* Always call on_request - let the framework decide upgrades */
   settings->on_request(h);
   return;
 
-upgrade:
-  if (1) {
-    fiobj_dup(t); /* allow upgrade name access after http_finish */
-    fio_str_info_s val = fiobj_obj2cstr(t);
-    if (val.data[0] == 'h' && val.data[1] == '2') {
-      http_send_error(h, 400);
-    } else {
-      settings->on_upgrade(h, val.data, val.len);
-    }
-    fiobj_free(t);
-    return;
-  }
-eventsource:
-  settings->on_upgrade(h, (char *)"sse", 3);
-  return;
 missing_host:
   FIO_LOG_DEBUG("missing Host header");
   http_send_error(h, 400);

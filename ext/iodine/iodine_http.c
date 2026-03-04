@@ -63,11 +63,8 @@ static ID fiber_result_var_id;
 static VALUE http_wait_directive;
 static ID fiber_id_method_id;
 static ID iodine_env_var_id;
-static ID iodine_upgrade_var_id;
 
-static VALUE env_template_no_upgrade;
-static VALUE env_template_websockets;
-static VALUE env_template_sse;
+static VALUE env_template;
 
 static rb_encoding *IodineUTF8Encoding;
 static rb_encoding *IodineBinaryEncoding;
@@ -124,11 +121,6 @@ typedef struct {
     IODINE_HTTP_WAIT,
     IODINE_HTTP_DEFERRED,
   } type;
-  enum iodine_upgrade_type_enum {
-    IODINE_UPGRADE_NONE = 0,
-    IODINE_UPGRADE_WEBSOCKET,
-    IODINE_UPGRADE_SSE,
-  } upgrade;
 } iodine_http_request_handle_s;
 
 /* *****************************************************************************
@@ -332,18 +324,7 @@ static int iodine_copy2env_task(FIOBJ o, void *env_) {
 static inline VALUE copy2env(iodine_http_request_handle_s *handle) {
   VALUE env;
   http_s *h = handle->h;
-  switch (handle->upgrade) {
-  case IODINE_UPGRADE_WEBSOCKET:
-    env = rb_hash_dup(env_template_websockets);
-    break;
-  case IODINE_UPGRADE_SSE:
-    env = rb_hash_dup(env_template_sse);
-    break;
-  case IODINE_UPGRADE_NONE: /* fallthrough */
-  default:
-    env = rb_hash_dup(env_template_no_upgrade);
-    break;
-  }
+  env = rb_hash_dup(env_template);
   IodineStore.add(env);
 
   fio_str_info_s tmp;
@@ -623,6 +604,8 @@ static inline int ruby2c_review_upgrade(iodine_http_request_handle_s *req,
                                         VALUE rbresponse, VALUE env) {
   http_s *h = req->h;
   VALUE handler;
+  VALUE upgrade_type;
+
   if ((handler = rb_hash_aref(env, IODINE_R_HIJACK_CB)) != Qnil) {
     // send headers
     http_finish(h);
@@ -636,37 +619,29 @@ static inline int ruby2c_review_upgrade(iodine_http_request_handle_s *req,
     goto upgraded;
   } else if ((handler = rb_hash_aref(env, UPGRADE_TCP)) != Qnil) {
     goto tcp_ip_upgrade;
-  } else {
-    switch (req->upgrade) {
-    case IODINE_UPGRADE_WEBSOCKET:
-      if ((handler = rb_hash_aref(env, RACK_UPGRADE)) != Qnil) {
-        // use response as existing base for native websocket upgrade
-        iodine_ws_attach(h, handler, env);
-        goto upgraded;
-      }
-      break;
-    case IODINE_UPGRADE_SSE:
-      if ((handler = rb_hash_aref(env, RACK_UPGRADE)) != Qnil) {
-        // use response as existing base for SSE upgrade
-        iodine_sse_attach(h, handler, env);
-        goto upgraded;
-      }
-      break;
-    default:
-      if ((handler = rb_hash_aref(env, RACK_UPGRADE)) != Qnil) {
-      tcp_ip_upgrade : {
-        // use response as existing base for raw TCP/IP upgrade
-        intptr_t uuid = http_hijack(h, NULL);
-        // send headers
-        http_finish(h);
-        // upgrade protocol to raw TCP/IP
-        iodine_tcp_attch_uuid(uuid, handler);
-        goto upgraded;
-      }
-      }
-      break;
+  }
+
+  handler = rb_hash_aref(env, RACK_UPGRADE);
+  if (handler == Qnil)
+    return 0;
+
+  upgrade_type = rb_hash_aref(env, RACK_UPGRADE_Q);
+
+  if (upgrade_type == RACK_UPGRADE_WEBSOCKET) {
+    iodine_ws_attach(h, handler, env);
+    goto upgraded;
+  } else if (upgrade_type == RACK_UPGRADE_SSE) {
+    iodine_sse_attach(h, handler, env);
+    goto upgraded;
+  } else if (RTEST(upgrade_type)) {
+  tcp_ip_upgrade : {
+      intptr_t uuid = http_hijack(h, NULL);
+      http_finish(h);
+      iodine_tcp_attch_uuid(uuid, handler);
+      goto upgraded;
     }
   }
+
   return 0;
 
 upgraded:
@@ -692,11 +667,7 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
 
   if (handle->type == IODINE_HTTP_DEFERRED) {
     rbresponse = rb_ivar_get((VALUE)h->fiber, fiber_result_var_id);
-    VALUE upgrade_val = rb_ivar_get((VALUE)h->fiber, iodine_upgrade_var_id);
-    if (upgrade_val != Qnil) {
-      env = rb_ivar_get((VALUE)h->fiber, iodine_env_var_id);
-      handle->upgrade = FIX2INT(upgrade_val);
-    }
+    env = rb_ivar_get((VALUE)h->fiber, iodine_env_var_id);
   } else {
     // create / register env variable
     env = copy2env(handle);
@@ -715,10 +686,7 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
   // rack will return `[:__http_defer__, fiber_to_wait_on]` in case the request needs to be paused
   if (TYPE(tmp) == T_SYMBOL && tmp == http_wait_directive) {
     VALUE fiber = rb_ary_entry(rbresponse, 1);
-    if (handle->upgrade != IODINE_UPGRADE_NONE) {
-      rb_ivar_set(fiber, iodine_env_var_id, env);
-      rb_ivar_set(fiber, iodine_upgrade_var_id, INT2FIX(handle->upgrade));
-    }
+    rb_ivar_set(fiber, iodine_env_var_id, env);
     h->fiber = (void *)IodineStore.add(fiber);
     goto defer;
   }
@@ -847,7 +815,6 @@ iodine_perform_handle_action(iodine_http_request_handle_s handle) {
 static inline void http_resume_deferred_request_handler(http_s *h) {
   iodine_http_request_handle_s handle = (iodine_http_request_handle_s){
     .h = h,
-    .upgrade = IODINE_UPGRADE_NONE,
     .type = IODINE_HTTP_DEFERRED,
   };
 
@@ -878,7 +845,6 @@ static inline void http_pause_request_handler(http_pause_handle_s *s) {
 static void on_rack_request(http_s *h) {
   iodine_http_request_handle_s handle = (iodine_http_request_handle_s){
       .h = h,
-      .upgrade = IODINE_UPGRADE_NONE,
   };
   IodineCaller.enterGVL((void *(*)(void *))iodine_handle_request_in_GVL,
                         &handle);
@@ -890,38 +856,15 @@ static void on_rack_request(http_s *h) {
   }
 }
 
-static void on_rack_upgrade(http_s *h, char *proto, size_t len) {
-  iodine_http_request_handle_s handle = (iodine_http_request_handle_s){.h = h};
-  if (len == 9 && (proto[1] == 'e' || proto[1] == 'E')) {
-    handle.upgrade = IODINE_UPGRADE_WEBSOCKET;
-  } else if (len == 3 && proto[0] == 's') {
-    handle.upgrade = IODINE_UPGRADE_SSE;
-  }
-  /* when we stop supporting custom Upgrade headers: */
-  // else {
-  //   http_send_error(h, 400);
-  //   return;
-  // }
-  IodineCaller.enterGVL(iodine_handle_request_in_GVL, &handle);
-
-  if (handle.type == IODINE_HTTP_WAIT) {
-    http_pause(handle.h, http_pause_request_handler);
-  } else {
-    iodine_perform_handle_action(handle);
-  }
-  (void)proto;
-  (void)len;
-}
-
 /* *****************************************************************************
 Rack `env` Template Initialization
 ***************************************************************************** */
 
 static void initialize_env_template(void) {
-  if (env_template_no_upgrade)
+  if (env_template)
     return;
-  env_template_no_upgrade = rb_hash_new();
-  IodineStore.add(env_template_no_upgrade);
+  env_template = rb_hash_new();
+  IodineStore.add(env_template);
 
 #define add_str_to_env(env, key, value)                                        \
   {                                                                            \
@@ -938,9 +881,9 @@ static void initialize_env_template(void) {
     rb_hash_aset((env), k, value);                                             \
   }
 
-  /* Set global template */
-  rb_hash_aset(env_template_no_upgrade, RACK_UPGRADE_Q, Qnil);
-  rb_hash_aset(env_template_no_upgrade, RACK_UPGRADE, Qnil);
+  /* Set global template - framework will set rack.upgrade? if it wants an upgrade */
+  rb_hash_aset(env_template, RACK_UPGRADE_Q, Qnil);
+  rb_hash_aset(env_template, RACK_UPGRADE, Qnil);
   {
     /* add the rack.version */
     static VALUE rack_version = 0;
@@ -951,7 +894,7 @@ static void initialize_env_template(void) {
       rb_global_variable(&rack_version);
       rb_ary_freeze(rack_version);
     }
-    add_value_to_env(env_template_no_upgrade, "rack.version", rack_version);
+    add_value_to_env(env_template, "rack.version", rack_version);
   }
 
   {
@@ -959,37 +902,27 @@ static void initialize_env_template(void) {
     if (!sn || (sn[0] == '/' && sn[1] == 0)) {
       sn = "";
     }
-    add_str_to_env(env_template_no_upgrade, "SCRIPT_NAME", sn);
+    add_str_to_env(env_template, "SCRIPT_NAME", sn);
   }
-  rb_hash_aset(env_template_no_upgrade, IODINE_R_INPUT, IODINE_R_INPUT_DEFAULT);
-  add_value_to_env(env_template_no_upgrade, "rack.errors", rb_stderr);
-  add_value_to_env(env_template_no_upgrade, "rack.hijack?", Qtrue);
-  add_value_to_env(env_template_no_upgrade, "rack.multiprocess", Qtrue);
-  add_value_to_env(env_template_no_upgrade, "rack.multithread", Qtrue);
-  add_value_to_env(env_template_no_upgrade, "rack.run_once", Qfalse);
+  rb_hash_aset(env_template, IODINE_R_INPUT, IODINE_R_INPUT_DEFAULT);
+  add_value_to_env(env_template, "rack.errors", rb_stderr);
+  add_value_to_env(env_template, "rack.hijack?", Qtrue);
+  add_value_to_env(env_template, "rack.multiprocess", Qtrue);
+  add_value_to_env(env_template, "rack.multithread", Qtrue);
+  add_value_to_env(env_template, "rack.run_once", Qfalse);
   /* default schema to http, it might be updated later */
-  rb_hash_aset(env_template_no_upgrade, R_URL_SCHEME, HTTP_SCHEME);
+  rb_hash_aset(env_template, R_URL_SCHEME, HTTP_SCHEME);
   /* placeholders... minimize rehashing*/
-  rb_hash_aset(env_template_no_upgrade, HTTP_VERSION, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, IODINE_R_HIJACK, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, PATH_INFO, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, QUERY_STRING, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, REMOTE_ADDR, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, REQUEST_METHOD, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, SERVER_NAME, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, SERVER_PROTOCOL, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, IODINE_REQUEST_ID, QUERY_STRING);
-  rb_hash_aset(env_template_no_upgrade, IODINE_HAS_BODY, QUERY_STRING);
-
-  /* WebSocket upgrade support */
-  env_template_websockets = rb_hash_dup(env_template_no_upgrade);
-  IodineStore.add(env_template_websockets);
-  rb_hash_aset(env_template_websockets, RACK_UPGRADE_Q, RACK_UPGRADE_WEBSOCKET);
-
-  /* SSE upgrade support */
-  env_template_sse = rb_hash_dup(env_template_no_upgrade);
-  IodineStore.add(env_template_sse);
-  rb_hash_aset(env_template_sse, RACK_UPGRADE_Q, RACK_UPGRADE_SSE);
+  rb_hash_aset(env_template, HTTP_VERSION, QUERY_STRING);
+  rb_hash_aset(env_template, IODINE_R_HIJACK, QUERY_STRING);
+  rb_hash_aset(env_template, PATH_INFO, QUERY_STRING);
+  rb_hash_aset(env_template, QUERY_STRING, QUERY_STRING);
+  rb_hash_aset(env_template, REMOTE_ADDR, QUERY_STRING);
+  rb_hash_aset(env_template, REQUEST_METHOD, QUERY_STRING);
+  rb_hash_aset(env_template, SERVER_NAME, QUERY_STRING);
+  rb_hash_aset(env_template, SERVER_PROTOCOL, QUERY_STRING);
+  rb_hash_aset(env_template, IODINE_REQUEST_ID, QUERY_STRING);
+  rb_hash_aset(env_template, IODINE_HAS_BODY, QUERY_STRING);
 
 #undef add_value_to_env
 #undef add_str_to_env
@@ -1046,15 +979,15 @@ relevant to HTTP/1.x connections.
 intptr_t iodine_http_listen(iodine_connection_args_s args){
   // clang-format on
   if (args.public.data) {
-    rb_hash_aset(env_template_no_upgrade, XSENDFILE_TYPE, XSENDFILE);
-    rb_hash_aset(env_template_no_upgrade, XSENDFILE_TYPE_HEADER, XSENDFILE);
+    rb_hash_aset(env_template, XSENDFILE_TYPE, XSENDFILE);
+    rb_hash_aset(env_template, XSENDFILE_TYPE_HEADER, XSENDFILE);
     support_xsendfile = 1;
   }
   IodineStore.add(args.handler);
 #ifdef __MINGW32__
   intptr_t uuid = http_listen(
       args.port.data, args.address.data, .on_request = on_rack_request,
-      .on_upgrade = on_rack_upgrade, .udata = (void *)args.handler,
+      .udata = (void *)args.handler,
       .timeout = args.timeout, .ws_timeout = args.ping,
       .ws_max_msg_size = args.max_msg, .max_header_size = args.max_headers,
       .on_finish = free_iodine_http, .log = args.log, .max_clients = args.max_clients,
@@ -1062,7 +995,7 @@ intptr_t iodine_http_listen(iodine_connection_args_s args){
 #else
   intptr_t uuid = http_listen(
       args.port.data, args.address.data, .on_request = on_rack_request,
-      .on_upgrade = on_rack_upgrade, .udata = (void *)args.handler,
+      .udata = (void *)args.handler,
       .tls = args.tls, .timeout = args.timeout, .ws_timeout = args.ping,
       .ws_max_msg_size = args.max_msg, .max_header_size = args.max_headers,
       .on_finish = free_iodine_http, .log = args.log, .max_clients = args.max_clients,
@@ -1272,7 +1205,6 @@ void iodine_init_http(void) {
   http_wait_directive = ID2SYM(rb_intern("__http_defer__"));
   fiber_id_method_id = rb_intern("__get_id");
   iodine_env_var_id = rb_intern("@__iodine_env");
-  iodine_upgrade_var_id = rb_intern("@__iodine_upgrade");
 
   IodineUTF8Encoding = rb_enc_find("UTF-8");
   IodineBinaryEncoding = rb_enc_find("binary");
