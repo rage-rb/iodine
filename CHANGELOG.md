@@ -6,6 +6,14 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.2.0 (2026-03-10)
+
+**Update**: Skip connection validity check when closing SSE connections
+
+**Update**: Stop setting content-type header for SSE requests
+
+**Update**: Set `x-accel-buffering` for SSE requests
+
 #### Change log v.5.1.0 (2026-03-04)
 
 **Update**: Verify SSE connection are open before calling the protocol object
