@@ -197,24 +197,7 @@ static VALUE iodine_connection_write(VALUE self, VALUE data) {
                     rb_enc_get(data) == IodineUTF8Encoding);
     return Qtrue;
     break;
-  case IODINE_CONNECTION_SSE:
-/* SSE */
-#if 1
-    http_sse_write(c->info.arg, .data = IODINE_RSTRINFO(data));
-    return Qtrue;
-#else
-    if (rb_enc_get(data) == IodineUTF8Encoding) {
-      http_sse_write(c->info.arg, .data = {.data = RSTRING_PTR(data),
-                                           .len = RSTRING_LEN(data)});
-      return Qtrue;
-    }
-    fprintf(stderr, "WARNING: ignoring an attept to write binary data to "
-                    "non-binary protocol (SSE).\n");
-    return Qfalse;
-// rb_raise(rb_eEncodingError,
-//          "This Connection type requires data to be UTF-8 encoded.");
-#endif
-    break;
+  case IODINE_CONNECTION_SSE: /* SSE - raw bytes, framework handles formatting */
   case IODINE_CONNECTION_RAW: /* fallthrough */
   default: {
     fio_write(c->info.uuid, RSTRING_PTR(data), RSTRING_LEN(data));
@@ -447,9 +430,7 @@ static void iodine_on_pubsub(fio_msg_s *msg) {
       }
       return;
     }
-    case IODINE_CONNECTION_SSE:
-      http_sse_write(data->info.arg, .data = msg->msg);
-      return;
+    case IODINE_CONNECTION_SSE: /* SSE - raw bytes, framework handles formatting */
     default:
       fio_write(data->info.uuid, msg->msg.data, msg->msg.len);
       return;

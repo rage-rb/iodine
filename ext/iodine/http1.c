@@ -465,11 +465,12 @@ static int http1_upgrade2sse(http_s *h, http_sse_s *sse) {
   const intptr_t uuid = handle2pr(h)->p.uuid;
   /* send response */
   h->status = 200;
-  http_set_header(h, HTTP_HEADER_CONTENT_TYPE, fiobj_dup(HTTP_HVALUE_SSE_MIME));
   http_set_header(h, HTTP_HEADER_CACHE_CONTROL,
                   fiobj_dup(HTTP_HVALUE_NO_CACHE));
   http_set_header(h, HTTP_HEADER_CONTENT_ENCODING,
                   fiobj_str_new("identity", 8));
+  http_set_header(h, fiobj_str_new("x-accel-buffering", 17),
+                  fiobj_str_new("no", 2));
   handle2pr(h)->stop = 1;
   htt1p_finish(h); /* avoid the enforced content length in http_finish */
 

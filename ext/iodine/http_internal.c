@@ -12,12 +12,12 @@ Feel free to copy, use and enjoy according to the license provided.
 Internal Request / Response Handlers
 ***************************************************************************** */
 
+/* Used by HTTP client response handler for WebSocket upgrade detection */
 static uint64_t http_upgrade_hash = 0;
+
 /** Use this function to handle HTTP requests.*/
 void http_on_request_handler______internal(http_s *h,
                                            http_settings_s *settings) {
-  if (!http_upgrade_hash)
-    http_upgrade_hash = fiobj_hash_string("upgrade", 7);
   h->udata = settings->udata;
 
   static uint64_t host_hash = 0;
@@ -34,14 +34,7 @@ void http_on_request_handler______internal(http_s *h,
     }
   }
 
-  FIOBJ t = fiobj_hash_get2(h->headers, http_upgrade_hash);
-  if (t)
-    goto upgrade;
-
-  if (fiobj_iseq(
-          fiobj_hash_get2(h->headers, fiobj_obj2hash(HTTP_HEADER_ACCEPT)),
-          HTTP_HVALUE_SSE_MIME))
-    goto eventsource;
+  /* Static file handling */
   if (settings->public_folder &&
       (fiobj_obj2cstr(h->method).len != 4 || strncasecmp("post", fiobj_obj2cstr(h->method).data, 4))) {
     fio_str_info_s path_str = fiobj_obj2cstr(h->path);
@@ -51,24 +44,11 @@ void http_on_request_handler______internal(http_s *h,
       return;
     }
   }
+
+  /* Always call on_request - let the framework decide upgrades */
   settings->on_request(h);
   return;
 
-upgrade:
-  if (1) {
-    fiobj_dup(t); /* allow upgrade name access after http_finish */
-    fio_str_info_s val = fiobj_obj2cstr(t);
-    if (val.data[0] == 'h' && val.data[1] == '2') {
-      http_send_error(h, 400);
-    } else {
-      settings->on_upgrade(h, val.data, val.len);
-    }
-    fiobj_free(t);
-    return;
-  }
-eventsource:
-  settings->on_upgrade(h, (char *)"sse", 3);
-  return;
 missing_host:
   FIO_LOG_DEBUG("missing Host header");
   http_send_error(h, 400);
