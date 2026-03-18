@@ -6,6 +6,12 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.2.1 (2026-03-18)
+
+**Fix**: Fix memory leak when setting `x-accel-buffering` header
+
+**Fix**: Fix memory leak with async SSE flows
+
 #### Change log v.5.2.0 (2026-03-10)
 
 **Update**: Skip connection validity check when closing SSE connections
