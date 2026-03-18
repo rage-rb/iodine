@@ -809,6 +809,11 @@ iodine_perform_handle_action(iodine_http_request_handle_s handle) {
 
 // gets called by `http_resume`
 static inline void http_resume_deferred_request_handler(http_s *h) {
+  // Save these before `iodine_handle_request_in_GVL`, because
+  // SSE/WebSocket upgrades invalidate the `http_s` struct
+  VALUE fiber = (VALUE)h->fiber;
+  subscription_s *subscription = (subscription_s *)h->subscription;
+
   iodine_http_request_handle_s handle = (iodine_http_request_handle_s){
     .h = h,
     .type = IODINE_HTTP_DEFERRED,
@@ -817,8 +822,8 @@ static inline void http_resume_deferred_request_handler(http_s *h) {
   IodineCaller.enterGVL((void *(*)(void *))iodine_handle_request_in_GVL,
                         &handle);
 
-  fio_unsubscribe((subscription_s *)h->subscription);
-  IodineStore.remove((VALUE)h->fiber);
+  fio_unsubscribe(subscription);
+  IodineStore.remove(fiber);
 
   iodine_perform_handle_action(handle);
 }
