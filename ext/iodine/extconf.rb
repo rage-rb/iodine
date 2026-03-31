@@ -107,4 +107,4 @@ EOS
   end
 end
 
-create_makefile 'iodine/iodine_ext'
+create_makefile 'iodine/iodine'
