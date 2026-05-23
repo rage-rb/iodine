@@ -65,9 +65,9 @@ typedef struct http1_parser_s {
   } state;
 } http1_parser_s;
 
-#define HTTP1_PARSER_INIT                                                      \
-  {                                                                            \
-    { 0 }                                                                      \
+#define HTTP1_PARSER_INIT \
+  {                       \
+    { 0 }                 \
   }
 
 /**
@@ -96,24 +96,32 @@ static int http1_on_request(http1_parser_s *parser);
 /** called when a response was received. */
 static int http1_on_response(http1_parser_s *parser);
 /** called when a request method is parsed. */
-static int http1_on_method(http1_parser_s *parser, char *method,
+static int http1_on_method(http1_parser_s *parser,
+                           char *method,
                            size_t method_len);
 /** called when a response status is parsed. the status_str is the string
  * without the prefixed numerical status indicator.*/
-static int http1_on_status(http1_parser_s *parser, size_t status,
-                           char *status_str, size_t len);
+static int http1_on_status(http1_parser_s *parser,
+                           size_t status,
+                           char *status_str,
+                           size_t len);
 /** called when a request path (excluding query) is parsed. */
 static int http1_on_path(http1_parser_s *parser, char *path, size_t path_len);
 /** called when a request path (excluding query) is parsed. */
-static int http1_on_query(http1_parser_s *parser, char *query,
+static int http1_on_query(http1_parser_s *parser,
+                          char *query,
                           size_t query_len);
 /** called when a the HTTP/1.x version is parsed. */
 static int http1_on_version(http1_parser_s *parser, char *version, size_t len);
 /** called when a header is parsed. */
-static int http1_on_header(http1_parser_s *parser, char *name, size_t name_len,
-                           char *data, size_t data_len);
+static int http1_on_header(http1_parser_s *parser,
+                           char *name,
+                           size_t name_len,
+                           char *data,
+                           size_t data_len);
 /** called when a body chunk is parsed. */
-static int http1_on_body_chunk(http1_parser_s *parser, char *data,
+static int http1_on_body_chunk(http1_parser_s *parser,
+                               char *data,
                                size_t data_len);
 /** called when a protocol error occurred. */
 static int http1_on_error(http1_parser_s *parser);
@@ -157,21 +165,21 @@ static int http1_on_error(http1_parser_s *parser);
 ***************************************************************************** */
 
 #if HTTP_HEADERS_LOWERCASE
-#define HEADER_NAME_IS_EQ(var_name, const_name, len)                           \
+#define HEADER_NAME_IS_EQ(var_name, const_name, len) \
   (!memcmp((var_name), (const_name), (len)))
 #else
-#define HEADER_NAME_IS_EQ(var_name, const_name, len)                           \
+#define HEADER_NAME_IS_EQ(var_name, const_name, len) \
   (!strncasecmp((var_name), (const_name), (len)))
 #endif
 
-#define HTTP1_P_FLAG_STATUS_LINE 1
+#define HTTP1_P_FLAG_STATUS_LINE     1
 #define HTTP1_P_FLAG_HEADER_COMPLETE 2
-#define HTTP1_P_FLAG_COMPLETE 4
-#define HTTP1_P_FLAG_CLENGTH 8
-#define HTTP1_PARSER_BIT_16 16
-#define HTTP1_PARSER_BIT_32 32
-#define HTTP1_P_FLAG_CHUNKED 64
-#define HTTP1_P_FLAG_RESPONSE 128
+#define HTTP1_P_FLAG_COMPLETE        4
+#define HTTP1_P_FLAG_CLENGTH         8
+#define HTTP1_PARSER_BIT_16          16
+#define HTTP1_PARSER_BIT_32          32
+#define HTTP1_P_FLAG_CHUNKED         64
+#define HTTP1_P_FLAG_RESPONSE        128
 
 /* *****************************************************************************
 Seeking for characters in a string
@@ -184,10 +192,10 @@ Seeking for characters in a string
  *
  * On newer systems, `memchr` should be faster.
  */
-static int seek2ch(uint8_t **buffer, register uint8_t *const limit,
+static int seek2ch(uint8_t **buffer,
+                   register uint8_t *const limit,
                    const uint8_t c) {
-  if (*buffer >= limit)
-    return 0;
+  if (*buffer >= limit) return 0;
   if (**buffer == c) {
     return 1;
   }
@@ -201,8 +209,7 @@ static int seek2ch(uint8_t **buffer, register uint8_t *const limit,
   {
     const uint8_t *alignment =
         (uint8_t *)(((uintptr_t)(*buffer) & (~(uintptr_t)7)) + 8);
-    if (*buffer < alignment)
-      *buffer += 1; /* we already tested this char */
+    if (*buffer < alignment) *buffer += 1; /* we already tested this char */
     if (limit >= alignment) {
       while (*buffer < alignment) {
         if (**buffer == c) {
@@ -242,8 +249,7 @@ finish:
 /* a helper that seeks any char, converts it to NUL and returns 1 if found. */
 inline static uint8_t seek2ch(uint8_t **pos, uint8_t *const limit, uint8_t ch) {
   /* This is library based alternative that is sometimes slower  */
-  if (*pos >= limit)
-    return 0;
+  if (*pos >= limit) return 0;
   if (**pos == ch) {
     return 1;
   }
@@ -261,8 +267,7 @@ inline static uint8_t seek2ch(uint8_t **pos, uint8_t *const limit, uint8_t ch) {
 /* a helper that seeks the EOL, converts it to NUL and returns it's length */
 inline static uint8_t seek2eol(uint8_t **pos, uint8_t *const limit) {
   /* single char lookup using memchr might be better when target is far... */
-  if (!seek2ch(pos, limit, '\n'))
-    return 0;
+  if (!seek2ch(pos, limit, '\n')) return 0;
   if ((*pos)[-1] == '\r') {
 #if HTTP1_PARSER_CONVERT_EOL2NUL
     (*pos)[-1] = (*pos)[0] = 0;
@@ -280,8 +285,7 @@ Change a letter to lower case (latin only)
 ***************************************************************************** */
 
 static uint8_t http_tolower(uint8_t c) {
-  if (c >= 'A' && c <= 'Z')
-    c |= 32;
+  if (c >= 'A' && c <= 'Z') c |= 32;
   return c;
 }
 
@@ -293,22 +297,17 @@ String to Number
 static long long http1_atol(const uint8_t *buf, const uint8_t **end) {
   register unsigned long long i = 0;
   uint8_t inv = 0;
-  while (*buf == ' ' || *buf == '\t' || *buf == '\f')
-    ++buf;
-  while (*buf == '-' || *buf == '+')
-    inv ^= (*(buf++) == '-');
+  while (*buf == ' ' || *buf == '\t' || *buf == '\f') ++buf;
+  while (*buf == '-' || *buf == '+') inv ^= (*(buf++) == '-');
   while (i <= ((((~0ULL) >> 1) / 10)) && *buf >= '0' && *buf <= '9') {
     i = i * 10;
     i += *buf - '0';
     ++buf;
   }
   /* test for overflow */
-  if (i >= (~((~0ULL) >> 1)) || (*buf >= '0' && *buf <= '9'))
-    i = (~0ULL >> 1);
-  if (inv)
-    i = 0ULL - i;
-  if (end)
-    *end = buf;
+  if (i >= (~((~0ULL) >> 1)) || (*buf >= '0' && *buf <= '9')) i = (~0ULL >> 1);
+  if (inv) i = 0ULL - i;
+  if (end) *end = buf;
   return i;
 }
 
@@ -317,16 +316,14 @@ static long long http1_atol16(const uint8_t *buf, const uint8_t **end) {
   register unsigned long long i = 0;
   uint8_t inv = 0;
   for (int limit_ = 0;
-       (*buf == ' ' || *buf == '\t' || *buf == '\f') && limit_ < 32; ++limit_)
+       (*buf == ' ' || *buf == '\t' || *buf == '\f') && limit_ < 32;
+       ++limit_)
     ++buf;
   for (int limit_ = 0; (*buf == '-' || *buf == '+') && limit_ < 32; ++limit_)
     inv ^= (*(buf++) == '-');
-  if (*buf == '0')
-    ++buf;
-  if ((*buf | 32) == 'x')
-    ++buf;
-  for (int limit_ = 0; (*buf == '0') && limit_ < 32; ++limit_)
-    ++buf;
+  if (*buf == '0') ++buf;
+  if ((*buf | 32) == 'x') ++buf;
+  for (int limit_ = 0; (*buf == '0') && limit_ < 32; ++limit_) ++buf;
   while (!(i & (~((~(0ULL)) >> 4)))) {
     if (*buf >= '0' && *buf <= '9') {
       i <<= 4;
@@ -338,10 +335,8 @@ static long long http1_atol16(const uint8_t *buf, const uint8_t **end) {
       break;
     ++buf;
   }
-  if (inv)
-    i = 0ULL - i;
-  if (end)
-    *end = buf;
+  if (inv) i = 0ULL - i;
+  if (end) *end = buf;
   return i;
 }
 
@@ -350,31 +345,30 @@ HTTP/1.1 parsre stages
 ***************************************************************************** */
 
 inline static int http1_consume_response_line(http1_parser_s *parser,
-                                              uint8_t *start, uint8_t *end) {
+                                              uint8_t *start,
+                                              uint8_t *end) {
   parser->state.reserved |= HTTP1_P_FLAG_RESPONSE;
   uint8_t *tmp = start;
-  if (!seek2ch(&tmp, end, ' '))
-    return -1;
-  if (http1_on_version(parser, (char *)start, tmp - start))
-    return -1;
+  if (!seek2ch(&tmp, end, ' ')) return -1;
+  if (http1_on_version(parser, (char *)start, tmp - start)) return -1;
   tmp = start = tmp + 1;
-  if (!seek2ch(&tmp, end, ' '))
-    return -1;
-  if (http1_on_status(parser, http1_atol(start, NULL), (char *)(tmp + 1),
+  if (!seek2ch(&tmp, end, ' ')) return -1;
+  if (http1_on_status(parser,
+                      http1_atol(start, NULL),
+                      (char *)(tmp + 1),
                       end - tmp))
     return -1;
   return 0;
 }
 
 inline static int http1_consume_request_line(http1_parser_s *parser,
-                                             uint8_t *start, uint8_t *end) {
+                                             uint8_t *start,
+                                             uint8_t *end) {
   uint8_t *tmp = start;
   uint8_t *host_start = NULL;
   uint8_t *host_end = NULL;
-  if (!seek2ch(&tmp, end, ' '))
-    return -1;
-  if (http1_on_method(parser, (char *)start, tmp - start))
-    return -1;
+  if (!seek2ch(&tmp, end, ' ')) return -1;
+  if (http1_on_method(parser, (char *)start, tmp - start)) return -1;
   tmp = start = tmp + 1;
   if (start[0] == 'h' && start[1] == 't' && start[2] == 't' &&
       start[3] == 'p') {
@@ -387,12 +381,10 @@ inline static int http1_consume_request_line(http1_parser_s *parser,
       tmp = host_end = host_start = (start += 8);
     } else
       goto review_path;
-    if (!seek2ch(&tmp, end, ' '))
-      return -1;
+    if (!seek2ch(&tmp, end, ' ')) return -1;
     *tmp = ' ';
     if (!seek2ch(&host_end, tmp, '/')) {
-      if (http1_on_path(parser, (char *)"/", 1))
-        return -1;
+      if (http1_on_path(parser, (char *)"/", 1)) return -1;
       goto start_version;
     }
     host_end[0] = '/';
@@ -401,29 +393,27 @@ inline static int http1_consume_request_line(http1_parser_s *parser,
 review_path:
   tmp = start;
   if (seek2ch(&tmp, end, '?')) {
-    if (http1_on_path(parser, (char *)start, tmp - start))
-      return -1;
+    if (http1_on_path(parser, (char *)start, tmp - start)) return -1;
     tmp = start = tmp + 1;
-    if (!seek2ch(&tmp, end, ' '))
-      return -1;
+    if (!seek2ch(&tmp, end, ' ')) return -1;
     if (tmp - start > 0 && http1_on_query(parser, (char *)start, tmp - start))
       return -1;
   } else {
     tmp = start;
-    if (!seek2ch(&tmp, end, ' '))
-      return -1;
-    if (http1_on_path(parser, (char *)start, tmp - start))
-      return -1;
+    if (!seek2ch(&tmp, end, ' ')) return -1;
+    if (http1_on_path(parser, (char *)start, tmp - start)) return -1;
   }
 start_version:
   start = tmp + 1;
   if (start + 5 >= end) /* require "HTTP/" */
     return -1;
-  if (http1_on_version(parser, (char *)start, end - start))
-    return -1;
+  if (http1_on_version(parser, (char *)start, end - start)) return -1;
   /* */
-  if (host_start && http1_on_header(parser, (char *)"host", 4,
-                                    (char *)host_start, host_end - host_start))
+  if (host_start && http1_on_header(parser,
+                                    (char *)"host",
+                                    4,
+                                    (char *)host_start,
+                                    host_end - host_start))
     return -1;
   return 0;
 }
@@ -433,11 +423,12 @@ inline /* inline the function of it's short enough */
 #endif
     static int
     http1_consume_header_transfer_encoding(http1_parser_s *parser,
-                                           uint8_t *start, uint8_t *end_name,
-                                           uint8_t *start_value, uint8_t *end) {
+                                           uint8_t *start,
+                                           uint8_t *end_name,
+                                           uint8_t *start_value,
+                                           uint8_t *end) {
   /* this removes the `chunked` marker and prepares to "unchunk" the data */
-  while (start_value < end && (end[-1] == ',' || end[-1] == ' '))
-    --end;
+  while (start_value < end && (end[-1] == ',' || end[-1] == ' ')) --end;
   if ((end - start_value) == 7 &&
 #if HTTP1_UNALIGNED_MEMORY_ACCESS_ENABLED
       (((uint32_t *)(start_value))[0] | 0x20202020) ==
@@ -451,27 +442,26 @@ inline /* inline the function of it's short enough */
        (start_value[6] | 32) == 'd')
 #endif
   ) {
+    if (parser->state.content_length) return -1;
     /* simple case,only `chunked` as a value */
     parser->state.reserved |= HTTP1_P_FLAG_CHUNKED;
     parser->state.content_length = 0;
     start_value += 7;
     while (start_value < end && (*start_value == ',' || *start_value == ' '))
       ++start_value;
-    if (!(end - start_value))
-      return 0;
+    if (!(end - start_value)) return 0;
   } else if ((end - start_value) > 7 &&
              ((end[(-7 + 0)] | 32) == 'c' && (end[(-7 + 1)] | 32) == 'h' &&
               (end[(-7 + 2)] | 32) == 'u' && (end[(-7 + 3)] | 32) == 'n' &&
               (end[(-7 + 4)] | 32) == 'k' && (end[(-7 + 5)] | 32) == 'e' &&
               (end[(-7 + 6)] | 32) == 'd')) {
     /* simple case,`chunked` at the end of list (RFC required) */
+    if (parser->state.content_length) return -1;
     parser->state.reserved |= HTTP1_P_FLAG_CHUNKED;
     parser->state.content_length = 0;
     end -= 7;
-    while (start_value < end && (end[-1] == ',' || end[-1] == ' '))
-      --end;
-    if (!(end - start_value))
-      return 0;
+    while (start_value < end && (end[-1] == ',' || end[-1] == ' ')) --end;
+    if (!(end - start_value)) return 0;
   }
 #ifdef HTTP1_ALLOW_CHUNKED_IN_MIDDLE_OF_HEADER /* RFC diisallows this */
   else if ((end - start_value) > 7 && (end - start_value) < 256) {
@@ -494,6 +484,7 @@ inline /* inline the function of it's short enough */
 #endif
 
         ) {
+          if (parser->state.content_length) return -1;
           parser->state.reserved |= HTTP1_P_FLAG_CHUNKED;
           parser->state.content_length = 0;
           start_value += 7;
@@ -527,22 +518,29 @@ inline /* inline the function of it's short enough */
       val[val_len] = 0;
     }
     /* perform callback with `val` or indicate error */
-    if (val_len == 256 ||
-        (val_len && http1_on_header(parser, (char *)start, (end_name - start),
-                                    (char *)val, val_len)))
+    if (val_len == 256 || (val_len && http1_on_header(parser,
+                                                      (char *)start,
+                                                      (end_name - start),
+                                                      (char *)val,
+                                                      val_len)))
       return -1;
     return 0;
   }
 #endif /* HTTP1_ALLOW_CHUNKED_IN_MIDDLE_OF_HEADER */
   /* perform callback */
-  if (http1_on_header(parser, (char *)start, (end_name - start),
-                      (char *)start_value, end - start_value))
+  if (http1_on_header(parser,
+                      (char *)start,
+                      (end_name - start),
+                      (char *)start_value,
+                      end - start_value))
     return -1;
   return 0;
 }
 inline static int http1_consume_header_top(http1_parser_s *parser,
-                                           uint8_t *start, uint8_t *end_name,
-                                           uint8_t *start_value, uint8_t *end) {
+                                           uint8_t *start,
+                                           uint8_t *end_name,
+                                           uint8_t *start_value,
+                                           uint8_t *end) {
   if ((end_name - start) == 14 &&
 #if HTTP1_UNALIGNED_MEMORY_ACCESS_ENABLED && HTTP_HEADERS_LOWERCASE
       *((uint64_t *)start) == *((uint64_t *)"content-") &&
@@ -563,7 +561,6 @@ inline static int http1_consume_header_top(http1_parser_s *parser,
     }
     parser->state.reserved |= HTTP1_P_FLAG_CLENGTH;
   } else if ((end_name - start) == 17 && (end - start_value) >= 7 &&
-             !parser->state.content_length &&
 #if HTTP1_UNALIGNED_MEMORY_ACCESS_ENABLED && HTTP_HEADERS_LOWERCASE
              *((uint64_t *)start) == *((uint64_t *)"transfer") &&
              *((uint64_t *)(start + 8)) == *((uint64_t *)"-encodin")
@@ -572,12 +569,18 @@ inline static int http1_consume_header_top(http1_parser_s *parser,
 #endif
   ) {
     /* handle the special `transfer-encoding: chunked` header */
-    return http1_consume_header_transfer_encoding(parser, start, end_name,
-                                                  start_value, end);
+    return http1_consume_header_transfer_encoding(parser,
+                                                  start,
+                                                  end_name,
+                                                  start_value,
+                                                  end);
   }
   /* perform callback */
-  if (http1_on_header(parser, (char *)start, (end_name - start),
-                      (char *)start_value, end - start_value))
+  if (http1_on_header(parser,
+                      (char *)start,
+                      (end_name - start),
+                      (char *)start_value,
+                      end - start_value))
     return -1;
   return 0;
 }
@@ -602,7 +605,8 @@ inline static int http1_consume_header_trailer(http1_parser_s *parser,
   };
   for (size_t i = 0; http1_trailer_white_list[i].name; ++i) {
     if ((long)(end_name - start) == http1_trailer_white_list[i].len &&
-        HEADER_NAME_IS_EQ((char *)start, http1_trailer_white_list[i].name,
+        HEADER_NAME_IS_EQ((char *)start,
+                          http1_trailer_white_list[i].name,
                           http1_trailer_white_list[i].len)) {
       /* header disallowed here */
       goto white_listed;
@@ -611,20 +615,22 @@ inline static int http1_consume_header_trailer(http1_parser_s *parser,
   return 0;
 white_listed:
   /* perform callback */
-  if (http1_on_header(parser, (char *)start, (end_name - start),
-                      (char *)start_value, end - start_value))
+  if (http1_on_header(parser,
+                      (char *)start,
+                      (end_name - start),
+                      (char *)start_value,
+                      end - start_value))
     return -1;
   return 0;
 }
 
-inline static int http1_consume_header(http1_parser_s *parser, uint8_t *start,
+inline static int http1_consume_header(http1_parser_s *parser,
+                                       uint8_t *start,
                                        uint8_t *end) {
   uint8_t *end_name = start;
   /* divide header name from data */
-  if (!seek2ch(&end_name, end, ':'))
-    return -1;
-  if (end_name[-1] == ' ' || end_name[-1] == '\t')
-    return -1;
+  if (!seek2ch(&end_name, end, ':')) return -1;
+  if (end_name[-1] == ' ' || end_name[-1] == '\t') return -1;
 #if HTTP_HEADERS_LOWERCASE
   for (uint8_t *t = start; t < end_name; t++) {
     *t = http_tolower(*t);
@@ -637,8 +643,11 @@ inline static int http1_consume_header(http1_parser_s *parser, uint8_t *start,
     start_value++;
   };
   return (parser->state.read ? http1_consume_header_trailer
-                             : http1_consume_header_top)(
-      parser, start, end_name, start_value, end);
+                             : http1_consume_header_top)(parser,
+                                                         start,
+                                                         end_name,
+                                                         start_value,
+                                                         end);
 }
 
 /* *****************************************************************************
@@ -646,12 +655,12 @@ HTTP/1.1 Body handling
 ***************************************************************************** */
 
 inline static int http1_consume_body_streamed(http1_parser_s *parser,
-                                              void *buffer, size_t length,
+                                              void *buffer,
+                                              size_t length,
                                               uint8_t **start) {
   uint8_t *end = *start + parser->state.content_length - parser->state.read;
   uint8_t *const stop = ((uint8_t *)buffer) + length;
-  if (end > stop)
-    end = stop;
+  if (end > stop) end = stop;
   if (end > *start &&
       http1_on_body_chunk(parser, (char *)(*start), end - *start))
     return -1;
@@ -663,20 +672,19 @@ inline static int http1_consume_body_streamed(http1_parser_s *parser,
 }
 
 inline static int http1_consume_body_chunked(http1_parser_s *parser,
-                                             void *buffer, size_t length,
+                                             void *buffer,
+                                             size_t length,
                                              uint8_t **start) {
   uint8_t *const stop = ((uint8_t *)buffer) + length;
   uint8_t *end = *start;
   while (*start < stop) {
     if (parser->state.content_length == 0) {
-      if (end + 2 >= stop)
-        return 0;
+      if (end + 2 >= stop) return 0;
       if ((end[0] == '\r' && end[1] == '\n')) {
         /* remove tailing EOL that wasn't processed and retest */
         end += 2;
         *start = end;
-        if (end + 2 >= stop)
-          return 0;
+        if (end + 2 >= stop) return 0;
       }
       long long chunk_len = http1_atol16(end, (const uint8_t **)&end);
       if (end + 2 > stop) /* overflowed? */
@@ -703,8 +711,11 @@ inline static int http1_consume_body_chunked(http1_parser_s *parser,
             tmp_len = mod;
           }
           if (!(parser->state.reserved & HTTP1_P_FLAG_CLENGTH) &&
-              http1_on_header(parser, "content-length", 14,
-                              (char *)buf + buf_len, 511 - buf_len)) {
+              http1_on_header(parser,
+                              "content-length",
+                              14,
+                              (char *)buf + buf_len,
+                              511 - buf_len)) {
             return -1;
           }
         }
@@ -724,8 +735,7 @@ inline static int http1_consume_body_chunked(http1_parser_s *parser,
       }
     }
     end = *start + (0 - parser->state.content_length);
-    if (end > stop)
-      end = stop;
+    if (end > stop) end = stop;
     if (end > *start &&
         http1_on_body_chunk(parser, (char *)(*start), end - *start)) {
       return -1;
@@ -737,8 +747,10 @@ inline static int http1_consume_body_chunked(http1_parser_s *parser,
   return 0;
 }
 
-inline static int http1_consume_body(http1_parser_s *parser, void *buffer,
-                                     size_t length, uint8_t **start) {
+inline static int http1_consume_body(http1_parser_s *parser,
+                                     void *buffer,
+                                     size_t length,
+                                     uint8_t **start) {
   if (parser->state.content_length > 0 &&
       parser->state.content_length > parser->state.read) {
     /* normal, streamed data */
@@ -780,8 +792,7 @@ HTTP/1.1 parsre function
  * allowing the user to adjust or refresh the state of the data.
  */
 static size_t http1_parse(http1_parser_s *parser, void *buffer, size_t length) {
-  if (!length)
-    return 0;
+  if (!length) return 0;
   HTTP1_ASSERT(parser && buffer);
   parser->state.next = NULL;
   uint8_t *start = (uint8_t *)buffer;
@@ -792,66 +803,60 @@ static size_t http1_parse(http1_parser_s *parser, void *buffer, size_t length) {
 
 re_eval:
   switch ((parser->state.reserved & 7)) {
-
-  case 0: /* request / response line */
-    /* clear out any leading white space */
-    while ((start < stop) &&
-           (*start == '\r' || *start == '\n' || *start == ' ' || *start == 0)) {
-      ++start;
-    }
-    end = start;
-    /* make sure the whole line is available*/
-    if (!(eol_len = seek2eol(&end, stop)))
-      return HTTP1_CONSUMED;
-
-    if (start[0] == 'H' && start[1] == 'T' && start[2] == 'T' &&
-        start[3] == 'P') {
-      /* HTTP response */
-      if (http1_consume_response_line(parser, start, end - eol_len + 1))
-        goto error;
-    } else if (http_tolower(start[0]) >= 'a' && http_tolower(start[0]) <= 'z') {
-      /* HTTP request */
-      if (http1_consume_request_line(parser, start, end - eol_len + 1))
-        goto error;
-    } else
-      goto error;
-    end = start = end + 1;
-    parser->state.reserved |= HTTP1_P_FLAG_STATUS_LINE;
-
-  /* fallthrough */
-  case 1: /* headers */
-    do {
-      if (start >= stop)
-        return HTTP1_CONSUMED; /* buffer ended on header line */
-      if (*start == '\r' || *start == '\n') {
-        goto finished_headers; /* empty line, end of headers */
+    case 0: /* request / response line */
+      /* clear out any leading white space */
+      while ((start < stop) && (*start == '\r' || *start == '\n' ||
+                                *start == ' ' || *start == 0)) {
+        ++start;
       }
       end = start;
-      if (!(eol_len = seek2eol(&end, stop)))
-        return HTTP1_CONSUMED;
-      if (http1_consume_header(parser, start, end - eol_len + 1))
+      /* make sure the whole line is available*/
+      if (!(eol_len = seek2eol(&end, stop))) return HTTP1_CONSUMED;
+
+      if (start[0] == 'H' && start[1] == 'T' && start[2] == 'T' &&
+          start[3] == 'P') {
+        /* HTTP response */
+        if (http1_consume_response_line(parser, start, end - eol_len + 1))
+          goto error;
+      } else if (http_tolower(start[0]) >= 'a' &&
+                 http_tolower(start[0]) <= 'z') {
+        /* HTTP request */
+        if (http1_consume_request_line(parser, start, end - eol_len + 1))
+          goto error;
+      } else
         goto error;
       end = start = end + 1;
-    } while ((parser->state.reserved & HTTP1_P_FLAG_HEADER_COMPLETE) == 0);
-  finished_headers:
-    ++start;
-    if (*start == '\n')
+      parser->state.reserved |= HTTP1_P_FLAG_STATUS_LINE;
+
+    /* fallthrough */
+    case 1: /* headers */
+      do {
+        if (start >= stop)
+          return HTTP1_CONSUMED; /* buffer ended on header line */
+        if (*start == '\r' || *start == '\n') {
+          goto finished_headers; /* empty line, end of headers */
+        }
+        end = start;
+        if (!(eol_len = seek2eol(&end, stop))) return HTTP1_CONSUMED;
+        if (http1_consume_header(parser, start, end - eol_len + 1)) goto error;
+        end = start = end + 1;
+      } while ((parser->state.reserved & HTTP1_P_FLAG_HEADER_COMPLETE) == 0);
+    finished_headers:
       ++start;
-    end = start;
-    parser->state.reserved |= HTTP1_P_FLAG_HEADER_COMPLETE;
-  /* fallthrough */
-  case (HTTP1_P_FLAG_HEADER_COMPLETE | HTTP1_P_FLAG_STATUS_LINE):
-    /* request body */
-    {
-      int t3 = http1_consume_body(parser, buffer, length, &start);
-      switch (t3) {
-      case -1:
-        goto error;
-      case -2:
-        goto re_eval;
+      if (*start == '\n') ++start;
+      end = start;
+      parser->state.reserved |= HTTP1_P_FLAG_HEADER_COMPLETE;
+    /* fallthrough */
+    case (HTTP1_P_FLAG_HEADER_COMPLETE | HTTP1_P_FLAG_STATUS_LINE):
+      /* request body */
+      {
+        int t3 = http1_consume_body(parser, buffer, length, &start);
+        switch (t3) {
+          case -1: goto error;
+          case -2: goto re_eval;
+        }
+        break;
       }
-      break;
-    }
   }
   /* are we done ? */
   if (parser->state.reserved & HTTP1_P_FLAG_COMPLETE) {

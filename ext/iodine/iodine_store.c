@@ -1,11 +1,11 @@
-#include "iodine.h"
-
 #include "iodine_store.h"
 
 #include <inttypes.h>
 #include <stdint.h>
 
-#define FIO_SET_NAME fio_store
+#include "iodine.h"
+
+#define FIO_SET_NAME     fio_store
 #define FIO_SET_OBJ_TYPE uintptr_t
 #include <fio.h>
 
@@ -23,13 +23,11 @@ API
 
 /** Adds an object to the storage (or increases it's reference count). */
 static VALUE storage_add(VALUE obj) {
-  if (!obj || obj == Qnil || obj == Qtrue || obj == Qfalse)
-    return obj;
+  if (!obj || obj == Qnil || obj == Qtrue || obj == Qfalse) return obj;
   uintptr_t old = 0;
   fio_lock(&iodine_storage_lock);
   fio_store_overwrite(&iodine_storage, obj, 1, &old);
-  if (old)
-    fio_store_overwrite(&iodine_storage, obj, old + 1, NULL);
+  if (old) fio_store_overwrite(&iodine_storage, obj, old + 1, NULL);
   if (iodine_storage_count_max < fio_store_count(&iodine_storage))
     iodine_storage_count_max = fio_store_count(&iodine_storage);
   fio_unlock(&iodine_storage_lock);
@@ -43,8 +41,7 @@ static VALUE storage_remove(VALUE obj) {
   fio_lock(&iodine_storage_lock);
   uintptr_t old = 0;
   fio_store_remove(&iodine_storage, obj, 0, &old);
-  if (old > 1)
-    fio_store_overwrite(&iodine_storage, obj, old - 1, NULL);
+  if (old > 1) fio_store_overwrite(&iodine_storage, obj, old - 1, NULL);
   fio_unlock(&iodine_storage_lock);
   return obj;
 }
@@ -58,15 +55,22 @@ static void storage_print(void) {
   uintptr_t index = 0;
   FIO_SET_FOR_LOOP(&iodine_storage, pos) {
     if (pos->obj) {
-      fprintf(stderr, "[%" PRIuPTR "] => %" PRIuPTR " X obj %p type %d\n",
-              index++, pos->obj, (void *)pos->hash, TYPE(pos->hash));
+      fprintf(stderr,
+              "[%" PRIuPTR "] => %" PRIuPTR " X obj %p type %d\n",
+              index++,
+              pos->obj,
+              (void *)pos->hash,
+              TYPE(pos->hash));
     }
   }
   fprintf(stderr, "Total of %" PRIuPTR " objects protected form GC\n", index);
   fprintf(stderr,
-          "Storage uses %" PRIuPTR " Hash bins for %" PRIuPTR " objects\n"
+          "Storage uses %" PRIuPTR " Hash bins for %" PRIuPTR
+          " objects\n"
           "The largest collection was %zu objects.\n",
-          iodine_storage.capa, iodine_storage.count, iodine_storage_count_max);
+          iodine_storage.capa,
+          iodine_storage.count,
+          iodine_storage_count_max);
   fio_unlock(&iodine_storage_lock);
 }
 
@@ -85,8 +89,7 @@ GC protection
 /* a callback for the GC (marking active objects) */
 static void storage_mark(void *ignore) {
   (void)ignore;
-  if (FIO_LOG_LEVEL >= FIO_LOG_LEVEL_DEBUG)
-    storage_print();
+  if (FIO_LOG_LEVEL >= FIO_LOG_LEVEL_DEBUG) storage_print();
   fio_lock(&iodine_storage_lock);
   // fio_store_compact(&iodine_storage);
   FIO_SET_FOR_LOOP(&iodine_storage, pos) {
@@ -131,12 +134,13 @@ struct IodineStorage_s IodineStore = {
 /** Initializes the storage unit for first use. */
 void iodine_storage_init(void) {
   fio_store_capa_require(&iodine_storage, 512);
-  VALUE tmp =
-      rb_define_class_under(rb_cObject, "IodineObjectStorage", rb_cObject);
+  VALUE tmp = rb_define_module_under(rb_cObject, "IodineObjectStorage");
   VALUE storage_obj =
       TypedData_Wrap_Struct(tmp, &storage_type_struct, &iodine_storage);
   // rb_global_variable(&iodine_storage_obj);
   rb_ivar_set(IodineModule, rb_intern2("storage", 7), storage_obj);
-  rb_define_module_function(IodineBaseModule, "db_print_protected_objects",
-                            storage_print_rb, 0);
+  rb_define_module_function(IodineBaseModule,
+                            "db_print_protected_objects",
+                            storage_print_rb,
+                            0);
 }
