@@ -1430,4 +1430,7 @@ void Init_iodine_ext(void) {
 
   // initialize scheduling helpers
   iodine_scheduler_initialize();
+
+  // initialize worker pool for blocking operations
+  iodine_worker_pool_init();
 }

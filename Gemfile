@@ -5,11 +5,9 @@ group :test do
   gem 'rspec'
   gem 'rack'
   gem 'http'
+  gem 'base64'
+  gem 'benchmark'
 end
 
 # Specify your gem's dependencies in iodine.gemspec
 gemspec
-
-gem "base64", "~> 0.3.0"
-
-gem "benchmark", "~> 0.5.0"

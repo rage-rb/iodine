@@ -107,4 +107,14 @@ EOS
   end
 end
 
+# Feature detection for blocking operation support (Ruby 4.0+)
+has_blocking_op_extract = have_func("rb_fiber_scheduler_blocking_operation_extract")
+
+if has_blocking_op_extract
+  puts "detected blocking_operation APIs - enabling WorkerPool"
+  $defs << "-DHAVE_IODINE_WORKER_POOL"
+else
+  puts "blocking_operation APIs not available (requires Ruby 4.0+) - WorkerPool disabled"
+end
+
 create_makefile 'iodine/iodine_ext'
