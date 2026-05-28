@@ -10,42 +10,42 @@
 
 Iodine is a fast concurrent web application server for real-time Ruby applications, with native support for WebSockets and Pub/Sub services - but it's also so much more.
 
-Iodine is a Ruby wrapper for many of the [facil.io](https://facil.io) C framework, leveraging the speed of C for many common web application tasks. In addition, iodine abstracts away all network concerns, so you never need to worry about the transport layer, free to concentrate on your application logic.
+Iodine is a Ruby wrapper for much of the [facil.io](https://facil.io) C framework, leveraging the speed of C for many common web application tasks. In addition, iodine abstracts away all network concerns, so you never need to worry about the transport layer, leaving you free to concentrate on your application logic.
 
 Iodine includes native support for:
 
 * HTTP, WebSockets and EventSource (SSE) Services (server);
 * WebSocket connections (server / client);
 * Pub/Sub (with optional Redis Pub/Sub scaling);
-* Fast(!) builtin Mustache template engine.
+* Fast(!) builtin Mustache templating;
 * Static file service (with automatic `gzip` support for pre-compressed assets);
-* Optimized Logging to `stderr`.
+* Optimized Logging to `stderr`;
 * Asynchronous event scheduling and timers;
 * HTTP/1.1 keep-alive and pipelining;
-* Heap Fragmentation Protection.
-* TLS 1.2 and above (Requires OpenSSL >= 1.1.0);
+* Heap Fragmentation Protection;
+* TLS 1.2 and above (Requiring OpenSSL >= 1.1.0);
 * TCP/IP server and client connectivity;
 * Unix Socket server and client connectivity;
-* Hot Restart (using the USR1 signal and without hot deployment);
+* Hot Restarts (using the USR1 signal and without hot deployment);
 * Custom protocol authoring;
-* [Sequel](https://github.com/jeremyevans/sequel) and ActiveRecord forking protection.
+* [Sequel](https://github.com/jeremyevans/sequel) and ActiveRecord forking protection;
 * and more!
 
-Since iodine wraps much of the [C facil.io framework](https://github.com/boazsegev/facil.io) to Ruby:
+Since iodine wraps much of the [C facil.io framework](https://github.com/boazsegev/facil.io) for Ruby:
 
-* Iodine can handle **thousands of concurrent connections** (tested with more then 20K connections on Linux)!
+* Iodine can handle **thousands of concurrent connections** (tested with more than 20K connections on Linux)!
 
 * Iodine is ideal for **Linux/Unix** based systems (i.e. macOS, Ubuntu, FreeBSD etc'), which are ideal for evented IO (while Windows and Solaris are better at IO *completion* events, which are very different).
 
 Iodine is a C extension for Ruby, developed and optimized for Ruby MRI 2.3 and up... it should support the whole Ruby 2.x and 3.x MRI family, but CI tests start at Ruby 2.3.
 
-**Note**: iodine does **not** support streaming when using Rack. It's recommended to avoid blocking the server when using `body.each` since the `each` loop will block the iodine's thread until it's finished and iodine won't send any data before the loop is done.
+**Note**: iodine does **not** support streaming when using Rack. It's recommended to avoid blocking the server when using `body.each` since the `each` loop will block  iodine's thread until it's finished and iodine won't send any data before the loop is done.
 
 ## Iodine - a fast & powerful HTTP + WebSockets server with native Pub/Sub
 
 Iodine includes a light and fast HTTP and Websocket server written in C that was written according to the [Rack interface specifications](http://www.rubydoc.info/github/rack/rack/master/file/SPEC) and the [Websocket draft extension](./SPEC-Websocket-Draft.md).
 
-With `Iodine.listen service: :http` it's possible to run multiple HTTP applications (please remember not to set more than a single application on a single TCP/IP port). 
+With `Iodine.listen service: :http` it's possible to run multiple HTTP applications (but please remember not to set more than a single application on a single TCP/IP port).
 
 Iodine also supports native process cluster Pub/Sub and a native RedisEngine to easily scale iodine's Pub/Sub horizontally.
 
@@ -278,11 +278,11 @@ module WebsocketChat
   extend self
 end
 APP = Proc.new do |env|
-  if env['rack.upgrade?'.freeze] == :websocket 
-    env['rack.upgrade'.freeze] = WebsocketChat 
+  if env['rack.upgrade?'.freeze] == :websocket
+    env['rack.upgrade'.freeze] = WebsocketChat
     [0,{}, []] # It's possible to set cookies for the response.
   elsif env['rack.upgrade?'.freeze] == :sse
-    puts "SSE connections can only receive data from the server, the can't write." 
+    puts "SSE connections can only receive data from the server, the can't write."
     env['rack.upgrade'.freeze] = WebsocketChat
     [0,{}, []] # It's possible to set cookies for the response.
   else
@@ -556,7 +556,7 @@ Iodine is written in C and allows some compile-time customizations, such as:
 * `FIO_MAX_SOCK_CAPACITY` - limits iodine's maximum client capacity. Defaults to 131,072 clients.
 
 * `FIO_USE_RISKY_HASH` - replaces SipHash with RiskyHash for iodine's internal hash maps.
- 
+
     Since iodine hash maps have internal protection against collisions and hash flooding attacks, it's possible for iodine to leverage RiskyHash, which is faster than SipHash.
 
     By default, SipHash will be used. This is a community related choice, since the community seems to believe a hash function should protect the hash map rather than it being enough for a hash map implementation to be attack resistance.
@@ -611,7 +611,7 @@ end
 
 In pure Ruby (without using C extensions or Java), it's possible to do the same by using `select`... and although `select` has some issues, it could work well for lighter loads.
 
-The server events are fairly fast and fragmented (longer code is fragmented across multiple events), so one thread is enough to run the server including it's static file service and everything... 
+The server events are fairly fast and fragmented (longer code is fragmented across multiple events), so one thread is enough to run the server including it's static file service and everything...
 
 ...but single threaded mode should probably be avoided.
 
@@ -642,7 +642,7 @@ If you have the development headers but still can't compile the iodine extension
 
 ## Mr. Sandman, write me a server
 
-Iodine allows custom TCP/IP server authoring, for those cases where we need raw TCP/IP (UDP isn't supported just yet). 
+Iodine allows custom TCP/IP server authoring, for those cases where we need raw TCP/IP (UDP isn't supported just yet).
 
 Here's a short and sweet echo server - No HTTP, just use `telnet`:
 
