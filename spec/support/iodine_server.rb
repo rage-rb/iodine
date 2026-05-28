@@ -55,7 +55,7 @@ module Spec
           cmd = "bundle exec exe/iodine -w 1 -t 1 -p #{server_port}".dup
         end
         cmd += " -V 5 -log" if opts[:verbose]
-        pid = spawn_with_test_log("#{cmd} #{filename}", **opts)
+        pid = spawn_with_test_log("RSPEC_TEST_ENV=1 #{cmd} #{filename}", **opts)
         wait_until_iodine_ready
         pid
       end

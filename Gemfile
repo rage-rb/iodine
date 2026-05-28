@@ -9,3 +9,5 @@ end
 
 # Specify your gem's dependencies in iodine.gemspec
 gemspec
+
+gem "base64", "~> 0.3.0"

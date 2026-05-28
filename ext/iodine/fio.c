@@ -1018,6 +1018,15 @@ static void init_static_throttle_key(void) {
 }
 
 static size_t fio_poll(void);
+
+/*
+ * Wake reactor when pushing tasks from non-reactor threads.
+ * fio_is_reactor_thread() assumes single-threaded reactor (threads=1).
+ * With multiple threads, fio_cycle can run on any worker, making this check
+ * unreliable. Safe for Rage which enforces single-thread mode.
+ */
+FIO_FUNC void fio_reactor_wakeup(void);
+FIO_FUNC int fio_is_reactor_thread(void);
 /**
  * A thread entering this function should wait for new events.
  */
@@ -1200,13 +1209,19 @@ critical_error:
         (fio_defer_task_s){.func = func_, .arg1 = arg1_, .arg2 = arg2_},       \
         &task_queue_normal);                                                   \
     fio_defer_thread_signal();                                                 \
+    if (!fio_is_reactor_thread())                                              \
+      fio_reactor_wakeup();                                                    \
   } while (0)
 
 #if FIO_USE_URGENT_QUEUE
 #define fio_defer_push_urgent(func_, arg1_, arg2_)                             \
-  fio_defer_push_task_fn(                                                      \
-      (fio_defer_task_s){.func = func_, .arg1 = arg1_, .arg2 = arg2_},         \
-      &task_queue_urgent)
+  do {                                                                         \
+    fio_defer_push_task_fn(                                                    \
+        (fio_defer_task_s){.func = func_, .arg1 = arg1_, .arg2 = arg2_},       \
+        &task_queue_urgent);                                                   \
+    if (!fio_is_reactor_thread())                                              \
+      fio_reactor_wakeup();                                                    \
+  } while (0)
 #else
 #define fio_defer_push_urgent(func_, arg1_, arg2_)                             \
   fio_defer_push_task(func_, arg1_, arg2_)
@@ -1974,6 +1989,7 @@ Section Start Marker
 ***************************************************************************** */
 #if FIO_ENGINE_EPOLL
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 
 /**
  * Returns a C string detailing the IO engine selected during compilation.
@@ -1984,6 +2000,10 @@ char const *fio_engine(void) { return "epoll"; }
 
 /* epoll tester, in and out */
 static int evio_fd[3] = {-1, -1, -1};
+/* eventfd for cross-thread reactor wakeup */
+static int fio_wakeup_fd = -1;
+/* reactor thread ID */
+static pthread_t fio_reactor_thread;
 
 static void fio_poll_close(void) {
   for (int i = 0; i < 3; ++i) {
@@ -1991,6 +2011,10 @@ static void fio_poll_close(void) {
       close(evio_fd[i]);
       evio_fd[i] = -1;
     }
+  }
+  if (fio_wakeup_fd != -1) {
+    close(fio_wakeup_fd);
+    fio_wakeup_fd = -1;
   }
 }
 
@@ -2009,6 +2033,20 @@ static void fio_poll_init(void) {
     if (epoll_ctl(evio_fd[0], EPOLL_CTL_ADD, evio_fd[i], &chevent) == -1)
       goto error;
   }
+  /* initialize eventfd for cross-thread wakeup */
+  fio_wakeup_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+  if (fio_wakeup_fd == -1) {
+    FIO_LOG_FATAL("couldn't create eventfd.");
+    goto error;
+  }
+  {
+    struct epoll_event ev = {.events = EPOLLIN, .data.fd = fio_wakeup_fd};
+    if (epoll_ctl(evio_fd[1], EPOLL_CTL_ADD, fio_wakeup_fd, &ev) == -1) {
+      FIO_LOG_FATAL("couldn't register eventfd with epoll.");
+      goto error;
+    }
+  }
+  fio_reactor_thread = pthread_self();
   return;
 error:
   FIO_LOG_FATAL("couldn't initialize epoll.");
@@ -2081,6 +2119,11 @@ static size_t fio_poll(void) {
         epoll_wait(internal[j].data.fd, events, FIO_POLL_MAX_EVENTS, 0);
     if (active_count > 0) {
       for (int i = 0; i < active_count; i++) {
+        if (events[i].data.fd == fio_wakeup_fd) {
+          uint64_t val;
+          read(fio_wakeup_fd, &val, sizeof(val));
+          continue;
+        }
         if (events[i].events & (~(EPOLLIN | EPOLLOUT | EPOLLHUP | EPOLLRDHUP | EPOLLERR))) {
           // errors are hendled as disconnections (on_close)
           fio_force_close_in_poll(fd2uuid(events[i].data.fd));
@@ -2107,6 +2150,17 @@ static size_t fio_poll(void) {
     }
   }
   return total;
+}
+
+FIO_FUNC int fio_is_reactor_thread(void) {
+  return pthread_equal(pthread_self(), fio_reactor_thread);
+}
+
+FIO_FUNC void fio_reactor_wakeup(void) {
+  if (fio_wakeup_fd == -1)
+    return;
+  uint64_t val = 1;
+  write(fio_wakeup_fd, &val, sizeof(val));
 }
 
 #endif
@@ -2152,8 +2206,24 @@ Section Start Marker
 char const *fio_engine(void) { return "kqueue"; }
 
 static int evio_fd = -1;
+/* EVFILT_USER identifier for cross-thread reactor wakeup */
+#define FIO_WAKEUP_IDENT 0xF10A11EUL
+static volatile int fio_wakeup_registered = 0;
+/* reactor thread ID */
+static pthread_t fio_reactor_thread;
 
-static void fio_poll_close(void) { close(evio_fd); }
+static void fio_poll_close(void) {
+  if (fio_wakeup_registered && evio_fd >= 0) {
+    struct kevent kev;
+    EV_SET(&kev, FIO_WAKEUP_IDENT, EVFILT_USER, EV_DELETE, 0, 0, NULL);
+    kevent(evio_fd, &kev, 1, NULL, 0, NULL);
+    fio_wakeup_registered = 0;
+  }
+  if (evio_fd >= 0) {
+    close(evio_fd);
+    evio_fd = -1;
+  }
+}
 
 static void fio_poll_init(void) {
   fio_poll_close();
@@ -2162,6 +2232,17 @@ static void fio_poll_init(void) {
     FIO_LOG_FATAL("couldn't open kqueue.\n");
     exit(errno);
   }
+  /* register EVFILT_USER for cross-thread wakeup */
+  {
+    struct kevent kev;
+    EV_SET(&kev, FIO_WAKEUP_IDENT, EVFILT_USER, EV_ADD | EV_CLEAR, 0, 0, NULL);
+    if (kevent(evio_fd, &kev, 1, NULL, 0, NULL) == -1) {
+      FIO_LOG_FATAL("couldn't register EVFILT_USER.\n");
+      exit(errno);
+    }
+    fio_wakeup_registered = 1;
+  }
+  fio_reactor_thread = pthread_self();
 }
 
 static inline void fio_poll_add_read(intptr_t fd) {
@@ -2226,6 +2307,11 @@ static size_t fio_poll(void) {
 
   if (active_count > 0) {
     for (int i = 0; i < active_count; i++) {
+      if (events[i].filter == EVFILT_USER &&
+          events[i].ident == FIO_WAKEUP_IDENT) {
+        /* EV_CLEAR auto-resets, nothing to drain */
+        continue;
+      }
       // test for event(s) type
       if (events[i].filter == EVFILT_WRITE) {
         fio_defer_push_urgent(deferred_on_ready,
@@ -2248,6 +2334,18 @@ static size_t fio_poll(void) {
     return -1;
   }
   return active_count;
+}
+
+FIO_FUNC int fio_is_reactor_thread(void) {
+  return pthread_equal(pthread_self(), fio_reactor_thread);
+}
+
+FIO_FUNC void fio_reactor_wakeup(void) {
+  if (!fio_wakeup_registered)
+    return;
+  struct kevent kev;
+  EV_SET(&kev, FIO_WAKEUP_IDENT, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+  kevent(evio_fd, &kev, 1, NULL, 0, NULL);
 }
 
 #endif
@@ -2397,6 +2495,13 @@ static size_t fio_poll(void) {
 finish:
   fio_free(list);
   return count;
+}
+
+FIO_FUNC int fio_is_reactor_thread(void) {
+  return 1;
+}
+
+FIO_FUNC void fio_reactor_wakeup(void) {
 }
 
 #endif /* FIO_ENGINE_POLL */
@@ -2579,6 +2684,13 @@ static size_t fio_poll(void) {
 finish:
   fio_free(list);
   return count;
+}
+
+FIO_FUNC int fio_is_reactor_thread(void) {
+  return 1;
+}
+
+FIO_FUNC void fio_reactor_wakeup(void) {
 }
 
 #endif /* FIO_ENGINE_WSAPOLL */
