@@ -1,5 +1,8 @@
 require 'iodine' unless defined?(::Iodine::VERSION)
-require 'rage/cli'
+begin
+  require 'rage/cli'
+rescue LoadError
+end
 
 module Iodine
   # Iodine's {Iodine::Rack} module provides a Rack compliant interface (connecting Iodine to Rack) for an HTTP and Websocket Server.
@@ -7,7 +10,13 @@ module Iodine
 
     # Runs a Rack app, as par the Rack handler requirements.
     def self.run(app, options = {})
-      Rage::CLI.new([], { port: options[:Port], binding: options[:Host], environment: options[:environment] }).server
+      if !defined?(Rage::CLI) && ENV["RSPEC_TEST_ENV"]
+        Iodine.listen(service: :http, handler: app, port: options[:Port], address: options[:Host])
+        Iodine.start
+      else
+        Rage::CLI.new([], { port: options[:Port], binding: options[:Host], environment: options[:environment] }).server
+      end
+
       true
     end
 
