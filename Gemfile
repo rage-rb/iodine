@@ -11,3 +11,5 @@ end
 gemspec
 
 gem "base64", "~> 0.3.0"
+
+gem "benchmark", "~> 0.5.0"
