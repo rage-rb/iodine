@@ -172,7 +172,7 @@ static VALUE iodine_call_block(
     int argc,
     VALUE *argv,
     VALUE udata,
-    VALUE(each_func)(VALUE block_arg, VALUE udata, int argc, VALUE *argv)) {
+    VALUE(each_func)(VALUE block_arg, VALUE udata, int argc, const VALUE *argv, VALUE blockarg)) {
   iodine_rb_task_s task = {
       .obj = obj,
       .argc = argc,
