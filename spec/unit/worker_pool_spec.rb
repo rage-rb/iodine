@@ -44,7 +44,7 @@ RSpec.describe "Iodine::WorkerPool" do
       expect(stats).to be_a(Hash)
       expect(stats[:workers]).to eq(2)
       expect(stats[:queued]).to eq(0)
-      expect(stats[:calls]).to eq(0)
+      expect(stats[:submitted]).to eq(0)
       expect(stats[:completed]).to eq(0)
       expect(stats[:closed]).to eq(false)
 
