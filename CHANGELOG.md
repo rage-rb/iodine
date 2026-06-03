@@ -6,6 +6,14 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.3.0 (2026-06-03)
+
+**Update**: Add Iodine::WorkerPool
+
+**Update**: Allow to wake up the reactor from non-reactor threads
+
+**Fix**: Correctly process async requests that return empty body
+
 #### Change log v.5.2.1 (2026-03-18)
 
 **Fix**: Fix memory leak when setting `x-accel-buffering` header
