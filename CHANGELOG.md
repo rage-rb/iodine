@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.4.0 (2026-06-08)
+
+**Update**: Optimize `fio_run_every` timers
+
 #### Change log v.5.3.0 (2026-06-03)
 
 **Update**: Add Iodine::WorkerPool

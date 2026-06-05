@@ -1473,6 +1473,10 @@ static fio_ls_embd_s fio_timers = FIO_LS_INIT(fio_timers);
 
 static fio_lock_i fio_timer_lock = FIO_LOCK_INIT;
 
+#ifndef FIO_TIMER_TAIL_PROBE_LIMIT
+#define FIO_TIMER_TAIL_PROBE_LIMIT 16
+#endif
+
 /** Marks the current time as facil.io's cycle time */
 static inline void fio_mark_time(void) {
   clock_gettime(CLOCK_REALTIME, &fio_data->last_cycle);
@@ -1538,6 +1542,33 @@ static void fio_timer_add_order(fio_timer_s *timer) {
   timer->due = fio_timer_calc_due(timer->interval);
   // fio_ls_embd_s *pos = &fio_timers;
   fio_lock(&fio_timer_lock);
+
+  if (!fio_ls_embd_any(&fio_timers)) {
+    fio_ls_embd_push(&fio_timers, &timer->node);
+    goto finish;
+  }
+
+  fio_timer_s *tail = FIO_LS_EMBD_OBJ(fio_timer_s, node, fio_timers.prev);
+  if (fio_timer_compare(timer->due, tail->due) <= 0) {
+    fio_ls_embd_push(&fio_timers, &timer->node);
+    goto finish;
+  }
+
+  fio_timer_s *head = FIO_LS_EMBD_OBJ(fio_timer_s, node, fio_timers.next);
+  if (fio_timer_compare(timer->due, head->due) >= 0) {
+    fio_ls_embd_push(fio_timers.next, &timer->node);
+    goto finish;
+  }
+
+  fio_ls_embd_s *node = fio_timers.prev;
+  for (size_t i = 0; i < FIO_TIMER_TAIL_PROBE_LIMIT && node != &fio_timers; ++i, node = node->prev) {
+    fio_timer_s *t2 = FIO_LS_EMBD_OBJ(fio_timer_s, node, node);
+    if (fio_timer_compare(t2->due, timer->due) >= 0) {
+      fio_ls_embd_push(node->next, &timer->node);
+      goto finish;
+    }
+  }
+
   FIO_LS_EMBD_FOR(&fio_timers, node) {
     fio_timer_s *t2 = FIO_LS_EMBD_OBJ(fio_timer_s, node, node);
     if (fio_timer_compare(timer->due, t2->due) >= 0) {
