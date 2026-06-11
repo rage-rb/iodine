@@ -11,7 +11,8 @@ task :spec => [:compile, :rspec]
 
 task :default => [:compile, :spec]
 
-Rake::ExtensionTask.new "iodine" do |ext|
+Rake::ExtensionTask.new "iodine_ext" do |ext|
+  ext.ext_dir = "ext/iodine" 
   ext.lib_dir = "lib/iodine"
 end
 
