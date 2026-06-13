@@ -209,6 +209,21 @@ int http_set_cookie(http_s *h, http_cookie_args_s);
 int http_send_body(http_s *h, void *data, uintptr_t length);
 
 /**
+ * Streams a chunk of the response body using chunked transfer encoding.
+ *
+ * Unlike `http_send_body`, this may be called repeatedly: each call sends one
+ * chunk, and the headers are sent automatically on the first call.
+ *
+ * The data is *copied*; the caller still owns its memory.
+ *
+ * The `http_s` handle REMAINS VALID across calls and MUST be finalized with
+ * `http_finish`, which sends the terminating zero-length chunk.
+ *
+ * Returns -1 on error and 0 on success.
+ */
+int http_stream(http_s *h, void *data, uintptr_t length);
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * The file is closed automatically.

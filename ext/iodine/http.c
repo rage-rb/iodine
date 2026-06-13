@@ -345,6 +345,21 @@ int http_send_body(http_s *r, void *data, uintptr_t length) {
       ->http_send_body(r, data, length);
 }
 /**
+ * Streams a chunk of the response body (chunked transfer encoding).
+ *
+ * Unlike `http_send_body`, the `http_s` handle remains valid for further
+ * streaming and MUST be finalized with `http_finish`.
+ *
+ * Returns -1 on error and 0 on success.
+ */
+int http_stream(http_s *r, void *data, uintptr_t length) {
+  if (HTTP_INVALID_HANDLE(r))
+    return -1;
+  /* No add_content_length: a stream has no fixed length. */
+  add_date(r);
+  return ((http_vtable_s *)r->private_data.vtbl)->http_stream(r, data, length);
+}
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * Returns -1 on error and 0 on success.
