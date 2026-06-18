@@ -35,6 +35,7 @@ typedef enum {
   HTTP_STREAM_IDLE = 0, /* default: no stream started, headers not yet sent */
   HTTP_STREAM_ACTIVE,   /* headers sent; chunked body in progress */
   HTTP_STREAM_CLOSED,   /* terminating 0-length chunk sent; stream complete */
+  HTTP_STREAM_ERROR,    /* a write failed; the stream is terminal */
 } http_stream_state_e;
 
 struct http_vtable_s {

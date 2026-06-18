@@ -50,6 +50,7 @@ inline static void h1_reset(http1pr_s *p) { p->header_size = 0; }
 static inline void http1_after_finish(http_s *h) {
   http1pr_s *p = handle2pr(h);
   p->stop = p->stop & (~1UL);
+  p->stream_state = HTTP_STREAM_IDLE;
   if (h != &p->request) {
     http_s_destroy(h, 0);
     fio_free(h);
@@ -232,6 +233,12 @@ static void htt1p_finish(http_s *h) {
     return;
   }
 
+  /* A failed stream is already terminal: tear down without re-sending headers. */
+  if (p->stream_state == HTTP_STREAM_ERROR) {
+    http1_after_finish(h);
+    return;
+  }
+
   FIOBJ packet = headers2str(h, 0);
   if (packet)
     fiobj_send_free((handle2pr(h)->p.uuid), packet);
@@ -246,6 +253,10 @@ static int http1_stream(http_s *h, void *data, uintptr_t length) {
   http1pr_s *p = handle2pr(h);
   const intptr_t uuid = p->p.uuid;
 
+  if (p->stream_state == HTTP_STREAM_ERROR) {
+    return -1;
+  }
+
   if (p->stream_state == HTTP_STREAM_IDLE) {
     FIOBJ te_key = fiobj_str_new("transfer-encoding", 17);
     http_set_header(h, te_key, fiobj_str_new("chunked", 7));
@@ -256,7 +267,10 @@ static int http1_stream(http_s *h, void *data, uintptr_t length) {
       http1_after_finish(h);
       return -1;
     }
-    fiobj_send_free(uuid, headers);
+    if (fiobj_send_free(uuid, headers) == -1) {
+      p->stream_state = HTTP_STREAM_ERROR;
+      return -1;
+    }
     p->stream_state = HTTP_STREAM_ACTIVE;
   }
 
@@ -267,7 +281,10 @@ static int http1_stream(http_s *h, void *data, uintptr_t length) {
   fiobj_str_printf(packet, "%lx\r\n", (unsigned long)length);
   fiobj_str_write(packet, data, length);
   fiobj_str_write(packet, "\r\n", 2);
-  fiobj_send_free(uuid, packet);
+  if (fiobj_send_free(uuid, packet) == -1) {
+    p->stream_state = HTTP_STREAM_ERROR;
+    return -1;
+  }
 
   return 0;
 }
