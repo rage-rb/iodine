@@ -44,6 +44,7 @@ typedef struct {
 #include "iodine_mustache.h"
 #include "iodine_pubsub.h"
 #include "iodine_rack_io.h"
+#include "iodine_rack_stream.h"
 #include "iodine_store.h"
 #include "iodine_tcp.h"
 #include "iodine_tls.h"

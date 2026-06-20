@@ -224,6 +224,13 @@ int http_send_body(http_s *h, void *data, uintptr_t length);
 int http_stream(http_s *h, void *data, uintptr_t length);
 
 /**
+ * Returns the socket UUID backing the HTTP handle, or -1 if the handle is
+ * invalid. The UUID is a stable connection identifier safe to cache and later
+ * validate with `fio_is_valid`.
+ */
+intptr_t http_uuid(http_s *h);
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * The file is closed automatically.
