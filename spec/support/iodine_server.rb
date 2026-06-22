@@ -8,12 +8,12 @@ module Spec
         HTTP.timeout(1)
       end
 
-      def http_get(path, *args)
-        http_client.get("http://localhost:#{server_port}#{path}", *args)
+      def http_get(path, *args, **kwargs)
+        http_client.get("http://localhost:#{server_port}#{path}", *args, **kwargs)
       end
 
-      def http_post(path, *args)
-        http_client.post("http://localhost:#{server_port}#{path}", *args)
+      def http_post(path, *args, **kwargs)
+        http_client.post("http://localhost:#{server_port}#{path}", *args, **kwargs)
       end
 
       def spawn_with_test_log(cmd, verbose: ENV.key?('VERBOSE'))

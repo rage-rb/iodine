@@ -83,6 +83,14 @@ static inline void add_content_length(http_s *r, uintptr_t length) {
                    fiobj_num_new(length));
   }
 }
+
+static inline void remove_content_length(http_s *r) {
+  static uint64_t cl_hash = 0;
+  if (!cl_hash)
+    cl_hash = fiobj_hash_string("content-length", 14);
+  fiobj_hash_delete2(r->private_data.out_headers, cl_hash);
+}
+
 static inline void add_content_type(http_s *r) {
   static uint64_t ct_hash = 0;
   if (!ct_hash)
@@ -344,6 +352,23 @@ int http_send_body(http_s *r, void *data, uintptr_t length) {
   return ((http_vtable_s *)r->private_data.vtbl)
       ->http_send_body(r, data, length);
 }
+
+/**
+ * Streams a chunk of the response body (chunked transfer encoding).
+ *
+ * Unlike `http_send_body`, the `http_s` handle remains valid for further
+ * streaming and MUST be finalized with `http_finish`.
+ *
+ * Returns -1 on error and 0 on success.
+ */
+int http_stream(http_s *r, void *data, uintptr_t length) {
+  if (HTTP_INVALID_HANDLE(r))
+    return -1;
+  remove_content_length(r);
+  add_date(r);
+  return ((http_vtable_s *)r->private_data.vtbl)->http_stream(r, data, length);
+}
+
 /**
  * Sends the response headers and the specified file (the response's body).
  *

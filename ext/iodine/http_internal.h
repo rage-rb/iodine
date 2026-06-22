@@ -30,6 +30,14 @@ Types
 typedef struct http_fio_protocol_s http_fio_protocol_s;
 typedef struct http_vtable_s http_vtable_s;
 
+/* HTTP/1.1 response streaming lifecycle (Phase 1: transport only). */
+typedef enum {
+  HTTP_STREAM_IDLE = 0, /* default: no stream started, headers not yet sent */
+  HTTP_STREAM_ACTIVE,   /* headers sent; chunked body in progress */
+  HTTP_STREAM_CLOSED,   /* terminating 0-length chunk sent; stream complete */
+  HTTP_STREAM_ERROR,    /* a write failed; the stream is terminal */
+} http_stream_state_e;
+
 struct http_vtable_s {
   /** Should send existing headers and data */
   int (*const http_send_body)(http_s *h, void *data, uintptr_t length);

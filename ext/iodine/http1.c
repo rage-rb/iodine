@@ -28,6 +28,7 @@ typedef struct http1pr_s {
   uint8_t close;
   uint8_t is_client;
   uint8_t stop;
+  http_stream_state_e stream_state;
   uint8_t buf[];
 } http1pr_s;
 
@@ -49,6 +50,7 @@ inline static void h1_reset(http1pr_s *p) { p->header_size = 0; }
 static inline void http1_after_finish(http_s *h) {
   http1pr_s *p = handle2pr(h);
   p->stop = p->stop & (~1UL);
+  p->stream_state = HTTP_STREAM_IDLE;
   if (h != &p->request) {
     http_s_destroy(h, 0);
     fio_free(h);
@@ -221,6 +223,22 @@ static int http1_sendfile(http_s *h, int fd, uintptr_t length,
 
 /** Should send existing headers or complete streaming */
 static void htt1p_finish(http_s *h) {
+  http1pr_s *p = handle2pr(h);
+
+  /* An active chunked stream ends with the terminating zero-length chunk */
+  if (p->stream_state == HTTP_STREAM_ACTIVE) {
+    fiobj_send_free(p->p.uuid, fiobj_str_new("0\r\n\r\n", 5));
+    p->stream_state = HTTP_STREAM_CLOSED;
+    http1_after_finish(h);
+    return;
+  }
+
+  /* A failed stream is already terminal: tear down without re-sending headers. */
+  if (p->stream_state == HTTP_STREAM_ERROR) {
+    http1_after_finish(h);
+    return;
+  }
+
   FIOBJ packet = headers2str(h, 0);
   if (packet)
     fiobj_send_free((handle2pr(h)->p.uuid), packet);
@@ -229,6 +247,48 @@ static void htt1p_finish(http_s *h) {
   }
   http1_after_finish(h);
 }
+
+/** Sends a single chunk of a streaming HTTP/1.1 response (chunked encoding). */
+static int http1_stream(http_s *h, void *data, uintptr_t length) {
+  http1pr_s *p = handle2pr(h);
+  const intptr_t uuid = p->p.uuid;
+
+  if (p->stream_state == HTTP_STREAM_ERROR) {
+    return -1;
+  }
+
+  if (p->stream_state == HTTP_STREAM_IDLE) {
+    FIOBJ te_key = fiobj_str_new("transfer-encoding", 17);
+    http_set_header(h, te_key, fiobj_str_new("chunked", 7));
+    fiobj_free(te_key);
+
+    FIOBJ headers = headers2str(h, 0);
+    if (!headers) {
+      http1_after_finish(h);
+      return -1;
+    }
+    if (fiobj_send_free(uuid, headers) == -1) {
+      p->stream_state = HTTP_STREAM_ERROR;
+      return -1;
+    }
+    p->stream_state = HTTP_STREAM_ACTIVE;
+  }
+
+  if (length == 0)
+    return 0;
+
+  FIOBJ packet = fiobj_str_buf(length + 32);
+  fiobj_str_printf(packet, "%lx\r\n", (unsigned long)length);
+  fiobj_str_write(packet, data, length);
+  fiobj_str_write(packet, "\r\n", 2);
+  if (fiobj_send_free(uuid, packet) == -1) {
+    p->stream_state = HTTP_STREAM_ERROR;
+    return -1;
+  }
+
+  return 0;
+}
+
 /** Push for data - unsupported. */
 static int http1_push_data(http_s *h, void *data, uintptr_t length,
                            FIOBJ mime_type) {
@@ -534,6 +594,7 @@ Virtual Table Decleration
 struct http_vtable_s HTTP1_VTABLE = {
     .http_send_body = http1_send_body,
     .http_sendfile = http1_sendfile,
+    .http_stream = http1_stream,
     .http_finish = htt1p_finish,
     .http_push_data = http1_push_data,
     .http_push_file = http1_push_file,
