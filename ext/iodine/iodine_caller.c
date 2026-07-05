@@ -152,6 +152,18 @@ static VALUE iodine_call(VALUE obj, ID method) {
   return (VALUE)rv;
 }
 
+/** Calls a Ruby method on a given object, without protecting against exceptions. */
+static VALUE iodine_call_unprotected(VALUE obj, ID method) {
+  iodine_rb_task_s task = {
+      .obj = obj,
+      .argc = 0,
+      .argv = NULL,
+      .method = method,
+  };
+  void *rv = iodine_enterGVL((void *(*)(void *))iodine_ruby_caller_perform, &task);
+  return (VALUE)rv;
+}
+
 /** Calls a Ruby method on a given object, protecting against exceptions. */
 static VALUE iodine_call2(VALUE obj, ID method, int argc, VALUE *argv) {
   iodine_rb_task_s task = {
@@ -223,6 +235,8 @@ struct IodineCaller_s IodineCaller = {
     .call = iodine_call,
     /** Calls a Ruby method on a given object, protecting against exceptions. */
     .call2 = iodine_call2,
+    /** Calls a Ruby method on a given object, without protecting against exceptions. */
+    .call_unprotected = iodine_call_unprotected,
     /** Returns the GVL state flag. */
     .in_GVL = iodine_in_GVL,
     /** Forces the GVL state flag. */

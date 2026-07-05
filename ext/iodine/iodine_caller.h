@@ -14,6 +14,8 @@ extern struct IodineCaller_s {
   VALUE (*call)(VALUE obj, ID method);
   /** Calls a Ruby method on a given object, protecting against exceptions. */
   VALUE (*call2)(VALUE obj, ID method, int argc, VALUE *argv);
+  /** Calls a Ruby method on a given object, without protecting against exceptions. */
+  VALUE (*call_unprotected)(VALUE obj, ID method);
   /** Calls a Ruby method on a given object, protecting against exceptions. */
   VALUE(*call_with_block)
   (VALUE obj, ID method, int argc, VALUE *argv, VALUE udata,
