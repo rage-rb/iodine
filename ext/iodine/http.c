@@ -189,6 +189,26 @@ int http_set_header2(http_s *r, fio_str_info_s n, fio_str_info_s v) {
 }
 
 /**
+ * Sets a response header if it hasn't already been set.
+ *
+ * Returns -1 on error and 0 on success.
+ */
+static inline int http_set_header_if_none(http_s *r, FIOBJ name, FIOBJ value) {
+  if (HTTP_INVALID_HANDLE(r) || !name) {
+    fiobj_free(value);
+    return -1;
+  }
+
+  if (fiobj_hash_get2(r->private_data.out_headers, fiobj_obj2hash(name))) {
+    fiobj_free(value);
+    return 0;
+  }
+
+  fiobj_hash_set(r->private_data.out_headers, name, value);
+  return 0;
+}
+
+/**
  * Sets a response cookie, taking ownership of the value object, but NOT the
  * name object (so name objects could be reused in future responses).
  *
@@ -461,12 +481,12 @@ no_gzip_support:
     return -1;
 found_file:
   /* set cache-control */
-  http_set_header(h, HTTP_HEADER_CACHE_CONTROL, fiobj_dup(HTTP_HVALUE_MAX_AGE));
+  http_set_header_if_none(h, HTTP_HEADER_CACHE_CONTROL, fiobj_dup(HTTP_HVALUE_MAX_AGE));
   /* set last-modified */
   FIOBJ last_modified_str = fiobj_str_buf(32);
   fiobj_str_resize(
       last_modified_str, http_time2str(fiobj_obj2cstr(last_modified_str).data, file_data.st_mtime));
-  http_set_header(h, HTTP_HEADER_LAST_MODIFIED, last_modified_str);
+  http_set_header_if_none(h, HTTP_HEADER_LAST_MODIFIED, last_modified_str);
   /* set & test etag */
   FIOBJ etag_str = fiobj_str_buf(1);
   fiobj_str_printf(etag_str, "%lx-%llx", file_data.st_mtime, file_data.st_size);
@@ -605,7 +625,7 @@ open_file:
       tmp = http_mimetype_find(s.data + pos, s.len - pos);
     }
     if (tmp)
-      http_set_header(h, HTTP_HEADER_CONTENT_TYPE, tmp);
+      http_set_header_if_none(h, HTTP_HEADER_CONTENT_TYPE, tmp);
   }
   http_sendfile(h, file, length, offset);
   return 0;

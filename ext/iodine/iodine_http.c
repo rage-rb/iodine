@@ -1181,10 +1181,10 @@ void iodine_init_http(void) {
   rack_set(QUERY_ESTRING, "");
   rack_set(R_URL_SCHEME, "rack.url_scheme");
   rack_set(R_INPUT, "rack.input");
-  rack_set(XSENDFILE, "X-Sendfile");
+  rack_set(XSENDFILE, "x-sendfile");
   rack_set(XSENDFILE_TYPE, "sendfile.type");
   rack_set(XSENDFILE_TYPE_HEADER, "HTTP_X_SENDFILE_TYPE");
-  rack_set(CONTENT_LENGTH_HEADER, "Content-Length");
+  rack_set(CONTENT_LENGTH_HEADER, "content-length");
 
   rack_set(IODINE_R_INPUT, "rack.input");
   rack_set(IODINE_R_HIJACK_IO, "rack.hijack_io");
