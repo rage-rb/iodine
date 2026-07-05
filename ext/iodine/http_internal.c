@@ -610,7 +610,7 @@ static void http_lib_init(void *ignr_) {
   REGISTER_MIME("jpgm", "video/jpm");
   REGISTER_MIME("jpgv", "video/jpeg");
   REGISTER_MIME("jpm", "video/jpm");
-  REGISTER_MIME("js", "application/javascript");
+  REGISTER_MIME("js", "text/javascript");
   REGISTER_MIME("json", "application/json");
   REGISTER_MIME("jsonml", "application/jsonml+json");
   REGISTER_MIME("kar", "audio/midi");
@@ -694,6 +694,7 @@ static void http_lib_init(void *ignr_) {
   REGISTER_MIME("mie", "application/x-mie");
   REGISTER_MIME("mif", "application/vnd.mif");
   REGISTER_MIME("mime", "message/rfc822");
+  REGISTER_MIME("mjs", "text/javascript");
   REGISTER_MIME("mj2", "video/mj2");
   REGISTER_MIME("mjp2", "video/mj2");
   REGISTER_MIME("mk3d", "video/x-matroska");
@@ -803,7 +804,7 @@ static void http_lib_init(void *ignr_) {
   REGISTER_MIME("osf", "application/vnd.yamaha.openscoreformat");
   REGISTER_MIME("osfpvg", "application/vnd.yamaha.openscoreformat.osfpvg+xml");
   REGISTER_MIME("otc", "application/vnd.oasis.opendocument.chart-template");
-  REGISTER_MIME("otf", "application/x-font-otf");
+  REGISTER_MIME("otf", "font/otf");
   REGISTER_MIME("otg", "application/vnd.oasis.opendocument.graphics-template");
   REGISTER_MIME("oth", "application/vnd.oasis.opendocument.text-web");
   REGISTER_MIME("oti", "application/vnd.oasis.opendocument.image-template");
@@ -1066,8 +1067,8 @@ static void http_lib_init(void *ignr_) {
   REGISTER_MIME("trm", "application/x-msterminal");
   REGISTER_MIME("tsd", "application/timestamped-data");
   REGISTER_MIME("tsv", "text/tab-separated-values");
-  REGISTER_MIME("ttc", "application/x-font-ttf");
-  REGISTER_MIME("ttf", "application/x-font-ttf");
+  REGISTER_MIME("ttc", "font/collection");
+  REGISTER_MIME("ttf", "font/ttf");
   REGISTER_MIME("ttl", "text/turtle");
   REGISTER_MIME("twd", "application/vnd.simtech-mindmapper");
   REGISTER_MIME("twds", "application/vnd.simtech-mindmapper");
@@ -1163,7 +1164,8 @@ static void http_lib_init(void *ignr_) {
   REGISTER_MIME("wmx", "video/x-ms-wmx");
   REGISTER_MIME("wmz", "application/x-ms-wmz");
   // REGISTER_MIME("wmz", "application/x-msmetafile");
-  REGISTER_MIME("woff", "application/font-woff");
+  REGISTER_MIME("woff", "font/woff");
+  REGISTER_MIME("woff2", "font/woff2");
   REGISTER_MIME("wpd", "application/vnd.wordperfect");
   REGISTER_MIME("wpl", "application/vnd.ms-wpl");
   REGISTER_MIME("wps", "application/vnd.ms-works");
