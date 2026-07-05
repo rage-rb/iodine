@@ -13,7 +13,8 @@ typedef enum {
 } iodine_stream_state_e;
 
 typedef struct {
-  http_s *h;                   /* HTTP handle, for http_stream / http_finish */
+  /* TODO(phase-3): don't persist across http_pause/http_resume (invalidates h). */
+  http_s *h;
   intptr_t uuid;               /* socket uuid, for fio_pending / fio_is_valid */
   iodine_stream_state_e state;
   VALUE fiber;                 /* producer fiber; also held as an ivar so the GC marks it */
@@ -23,9 +24,12 @@ typedef struct {
   int freed;                   /* terminal guard: teardown runs exactly once */
 } stream_ctx_t;
 
-#define IODINE_STREAM_HIGH_WATERMARK (64 * 1024)
-#define IODINE_STREAM_LOW_WATERMARK (16 * 1024)
-#define IODINE_STREAM_HARD_MAX (256 * 1024)
+/* Watermarks are queued-packet counts ; each write is sliced
+ * into CHUNK_SIZE packets, so 1 packet ~= 16KB. */
+#define IODINE_STREAM_CHUNK_SIZE (16 * 1024)
+#define IODINE_STREAM_LOW_WATERMARK 1
+#define IODINE_STREAM_HIGH_WATERMARK 4
+#define IODINE_STREAM_HARD_MAX 16
 
 /* *****************************************************************************
 Core data / helpers
@@ -68,9 +72,9 @@ static void stream_teardown(VALUE stream) {
 Ruby API
 ***************************************************************************** */
 
-/* Writes one chunk. Runs 6 checks and returns a status symbol; never blocks.
- * The producer is expected to Fiber.yield on :would_block and treat
- * :closed/:disconnected/:error as terminal. */
+/* Writes one chunk, returns a status symbol; never blocks. Backpressure is gated
+ * once up front so the send stays atomic (a :would_block retry can't duplicate a
+ * partially-sent chunk). */
 static VALUE rack_stream_write(VALUE self, VALUE data) {
   stream_ctx_t *ctx = get_ctx(self);
 
@@ -88,24 +92,34 @@ static VALUE rack_stream_write(VALUE self, VALUE data) {
   Check_Type(data, T_STRING);
 
   /* 4. HARD_MAX -> last line of defense, fail the stream */
-  if (fio_pending(ctx->uuid) >= IODINE_STREAM_HARD_MAX) {
+  size_t pending = fio_pending(ctx->uuid);
+  if (pending >= IODINE_STREAM_HARD_MAX) {
     ctx->state = IODINE_STREAM_ERROR;
     return SYM_error;
   }
 
   /* 5. HIGH watermark -> normal backpressure, ask the producer to yield.
    * TODO: register http_pause here and resume from http1_on_ready at LOW. */
-  if (fio_pending(ctx->uuid) >= ctx->high_watermark) {
+  if (pending >= ctx->high_watermark) {
     ctx->blocked = 1;
     ctx->state = IODINE_STREAM_BLOCKED;
     return SYM_would_block;
   }
 
-  /* 6. actual send (chunked encoding; headers flushed on first call) */
-  if (http_stream(ctx->h, RSTRING_PTR(data), RSTRING_LEN(data)) < 0) {
-    ctx->state = IODINE_STREAM_ERROR;
-    return SYM_error;
-  }
+  /* 6. send in <= CHUNK_SIZE slices; empty chunk runs once to flush headers. */
+  const char *p = RSTRING_PTR(data);
+  size_t remaining = RSTRING_LEN(data);
+  do {
+    size_t n =
+        remaining < IODINE_STREAM_CHUNK_SIZE ? remaining : IODINE_STREAM_CHUNK_SIZE;
+    if (http_stream(ctx->h, (void *)p, n) < 0) {
+      ctx->state = IODINE_STREAM_ERROR;
+      return SYM_error;
+    }
+    p += n;
+    remaining -= n;
+  } while (remaining);
+
   if (ctx->state < IODINE_STREAM_STREAMING)
     ctx->state = IODINE_STREAM_STREAMING; /* first write flushed the headers */
   return SYM_ok;
