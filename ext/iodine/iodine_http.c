@@ -102,6 +102,7 @@ rack_declare(CONTENT_TYPE);
 rack_declare(R_URL_SCHEME);          // rack.url_scheme
 rack_declare(R_INPUT);               // rack.input
 rack_declare(XSENDFILE);             // for X-Sendfile support
+rack_declare(XSENDFILE_ROOT);        // for X-Sendfile support
 rack_declare(XSENDFILE_TYPE);        // for X-Sendfile support
 rack_declare(XSENDFILE_TYPE_HEADER); // for X-Sendfile support
 rack_declare(CONTENT_LENGTH_HEADER); // for X-Sendfile support
@@ -112,6 +113,7 @@ rack_declare(IODINE_HAS_BODY);
 typedef struct {
   http_s *h;
   FIOBJ body;
+  FIOBJ root;
   enum iodine_http_response_type_enum {
     IODINE_HTTP_NONE,
     IODINE_HTTP_SENDBODY,
@@ -716,6 +718,14 @@ static inline void *iodine_handle_request_in_GVL(void *handle_) {
     handle->body = fiobj_str_new(RSTRING_PTR(xfiles), RSTRING_LEN(xfiles));
     handle->type = IODINE_HTTP_XSENDFILE;
     rb_hash_delete(response_headers, XSENDFILE);
+    // extract optional root directory for path validation
+    VALUE xroot = rb_hash_aref(response_headers, XSENDFILE_ROOT);
+    if (xroot != Qnil && TYPE(xroot) == T_STRING) {
+      handle->root = fiobj_str_new(RSTRING_PTR(xroot), RSTRING_LEN(xroot));
+      rb_hash_delete(response_headers, XSENDFILE_ROOT);
+    } else {
+      handle->root = FIOBJ_INVALID;
+    }
     // remove content length headers, as this will be controled by iodine
     rb_hash_delete(response_headers, CONTENT_LENGTH_HEADER);
     // review each header and write it to the response.
@@ -782,8 +792,22 @@ iodine_perform_handle_action(iodine_http_request_handle_s handle) {
             .len == 7)
       fiobj_hash_delete2(handle.h->private_data.out_headers,
                          fiobj_obj2hash(HTTP_HEADER_CONTENT_ENCODING));
-    fio_str_info_s data = fiobj_obj2cstr(handle.body);
-    if (http_sendfile2(handle.h, data.data, data.len, NULL, 0)) {
+    fio_str_info_s file_data = fiobj_obj2cstr(handle.body);
+    int err;
+    if (handle.root != FIOBJ_INVALID) {
+      /* root dir specified - treat x-sendfile as relative/encoded path */
+      fio_str_info_s root_data = fiobj_obj2cstr(handle.root);
+      err = http_sendfile2(handle.h, root_data.data, root_data.len,
+                           file_data.data, file_data.len);
+      fiobj_free(handle.root);
+    } else {
+      /* no root dir - original behavior (absolute path as prefix) */
+      err = http_sendfile2(handle.h, file_data.data, file_data.len, NULL, 0);
+    }
+    if (err) {
+      fiobj_hash_clear(handle.h->private_data.out_headers);
+      http_set_header(handle.h, HTTP_HEADER_CACHE_CONTROL,
+                      fiobj_str_new("no-cache, max-age=0", 19));
       http_send_error(handle.h, 404);
     }
     fiobj_free(handle.body);
@@ -1182,6 +1206,7 @@ void iodine_init_http(void) {
   rack_set(R_URL_SCHEME, "rack.url_scheme");
   rack_set(R_INPUT, "rack.input");
   rack_set(XSENDFILE, "x-sendfile");
+  rack_set(XSENDFILE_ROOT, "x-sendfile-root");
   rack_set(XSENDFILE_TYPE, "sendfile.type");
   rack_set(XSENDFILE_TYPE_HEADER, "HTTP_X_SENDFILE_TYPE");
   rack_set(CONTENT_LENGTH_HEADER, "content-length");
