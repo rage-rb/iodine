@@ -324,10 +324,9 @@ static void iodine_perform_state_callback_persist(void *blk_) {
 }
 
 /* performs a Ruby state callback without protecting against exceptions */
-static void iodine_perform_unprotected_state_callback_once(void *blk_) {
+static void iodine_perform_unprotected_state_callback_persist(void *blk_) {
   VALUE blk = (VALUE)blk_;
   IodineCaller.call_unprotected(blk, call_id);
-  IodineStore.remove(blk);
 }
 
 // clang-format off
@@ -364,7 +363,7 @@ static VALUE iodine_on_state(VALUE self, VALUE event) {
 
   if (state == STATE_PRE_START) {
     fio_state_callback_add(FIO_CALL_PRE_START,
-                           iodine_perform_unprotected_state_callback_once,
+                           iodine_perform_unprotected_state_callback_persist,
                            (void *)block);
   } else if (state == STATE_BEFORE_FORK) {
     fio_state_callback_add(FIO_CALL_BEFORE_FORK,
