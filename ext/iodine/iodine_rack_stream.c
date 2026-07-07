@@ -27,9 +27,9 @@ typedef struct {
 /* Watermarks are queued-packet counts ; each write is sliced
  * into CHUNK_SIZE packets, so 1 packet ~= 16KB. */
 #define IODINE_STREAM_CHUNK_SIZE (16 * 1024)
-#define IODINE_STREAM_LOW_WATERMARK 1
-#define IODINE_STREAM_HIGH_WATERMARK 4
-#define IODINE_STREAM_HARD_MAX 16
+#define IODINE_STREAM_LOW_WATERMARK 4
+#define IODINE_STREAM_HIGH_WATERMARK 16
+#define IODINE_STREAM_HARD_MAX 64
 
 /* *****************************************************************************
 Core data / helpers
@@ -91,22 +91,28 @@ static VALUE rack_stream_write(VALUE self, VALUE data) {
   /* 3. type check -> TypeError if not a String */
   Check_Type(data, T_STRING);
 
-  /* 4. HARD_MAX -> last line of defense, fail the stream */
+  /* 4. count packets this write adds; a big write can enqueue many at once */
   size_t pending = fio_pending(ctx->uuid);
-  if (pending >= IODINE_STREAM_HARD_MAX) {
+  size_t packets_needed =
+      (RSTRING_LEN(data) + IODINE_STREAM_CHUNK_SIZE - 1) / IODINE_STREAM_CHUNK_SIZE;
+
+  /* 5. HARD_MAX -> unrecoverable (queue maxed, or write too big to ever fit) */
+  if (pending >= IODINE_STREAM_HARD_MAX ||
+      packets_needed >= IODINE_STREAM_HARD_MAX) {
     ctx->state = IODINE_STREAM_ERROR;
     return SYM_error;
   }
 
-  /* 5. HIGH watermark -> normal backpressure, ask the producer to yield.
+  /* 6. backpressure -> yield/retry (write would overflow HARD, or past HIGH)
    * TODO: register http_pause here and resume from http1_on_ready at LOW. */
-  if (pending >= ctx->high_watermark) {
+  if (pending + packets_needed >= IODINE_STREAM_HARD_MAX ||
+      pending >= ctx->high_watermark) {
     ctx->blocked = 1;
     ctx->state = IODINE_STREAM_BLOCKED;
     return SYM_would_block;
   }
-
-  /* 6. send in <= CHUNK_SIZE slices; empty chunk runs once to flush headers. */
+ 
+  /* 7. send in <= CHUNK_SIZE slices; empty chunk runs once to flush headers. */
   const char *p = RSTRING_PTR(data);
   size_t remaining = RSTRING_LEN(data);
   do {
