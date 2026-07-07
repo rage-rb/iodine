@@ -370,6 +370,15 @@ int http_stream(http_s *r, void *data, uintptr_t length) {
 }
 
 /**
+ * Returns the socket UUID backing the HTTP handle, or -1 if invalid.
+ */
+intptr_t http_uuid(http_s *h) {
+  if (HTTP_INVALID_HANDLE(h))
+    return -1;
+  return ((http_fio_protocol_s *)h->private_data.flag)->uuid;
+}
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * Returns -1 on error and 0 on success.
