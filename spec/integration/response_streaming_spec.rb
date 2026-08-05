@@ -49,4 +49,21 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
     expect(first_seen.keys.sort).to eq([0, 1, 2, 3, 4])
     expect(first_seen[4] - first_seen[0]).to be > 0.1
   end
+
+  it 'keeps streaming after the callable returns' do
+    body = +""
+    released = false
+
+    response = http_get('/async')
+    response.body.each do |fragment|
+      body << fragment
+      next if released || !body.include?("marker-a\n")
+
+      released = true
+      expect(http_get('/release').status).to eq(204)
+    end
+
+    expect(released).to be(true)
+    expect(body).to eq("marker-a\nmarker-b\n")
+  end
 end
