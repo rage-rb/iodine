@@ -595,9 +595,7 @@ static inline int ruby2c_response_send(iodine_http_request_handle_s *handle,
     if (stream == Qnil)
       return -1;
     IodineCaller.call2(body, iodine_call_proc_id, 1, &stream);
-    // Transitional safety: until the pause/token lifecycle lands, close before
-    // the raw HTTP handle can escape this request callback.
-    IodineCaller.call(stream, close_method_id);
+    IodineRackStream.pause(stream);
     handle->type = IODINE_HTTP_NONE;
     return 0;
   }

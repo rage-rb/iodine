@@ -345,6 +345,22 @@ void http_pause(http_s *h, void (*task)(http_pause_handle_s *http));
 void http_resume(http_pause_handle_s *http, void (*task)(http_s *h),
                  void (*fallback)(void *udata));
 
+/**
+ * Attempts to resume a paused request synchronously without waiting for the
+ * connection task lock.
+ *
+ * Returns 0 after consuming `http` and running `task`, 1 when the connection
+ * lock is busy (the handle remains valid for a later retry), and -1 when the
+ * connection was closed (the handle is consumed and `fallback` is called).
+ *
+ * As with `http_resume`, `task` MUST send, finish, or pause the response before
+ * returning. `udata` is passed only to `task`; `fallback` receives the paused
+ * response's stored `udata`.
+ */
+int http_resume_try(http_pause_handle_s *http,
+                    void (*task)(http_s *h, void *udata), void *udata,
+                    void (*fallback)(void *udata));
+
 /** Returns the `udata` associated with the paused opaque handle */
 void *http_paused_udata_get(http_pause_handle_s *http);
 

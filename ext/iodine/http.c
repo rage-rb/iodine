@@ -832,6 +832,40 @@ void http_resume(http_pause_handle_s *http, void (*task)(http_s *h),
 }
 
 /**
+ * Attempts to resume a paused request synchronously.
+ */
+int http_resume_try(http_pause_handle_s *http,
+                    void (*task)(http_s *h, void *udata), void *udata,
+                    void (*fallback)(void *udata)) {
+  if (!http)
+    return -1;
+
+  fio_protocol_s *protocol =
+      fio_protocol_try_lock(http->uuid, FIO_PR_LOCK_TASK);
+  if (!protocol) {
+    if (errno != EBADF)
+      return 1;
+    if (fallback)
+      fallback(http->udata);
+    fio_free(http);
+    return -1;
+  }
+
+  http_fio_protocol_s *p = (http_fio_protocol_s *)protocol;
+  http_s *h = http->h;
+  h->udata = http->udata;
+  h->fiber = http->fiber;
+  h->subscription = http->subscription;
+  http_vtable_s *vtbl = (http_vtable_s *)h->private_data.vtbl;
+  if (task)
+    task(h, udata);
+  vtbl->http_on_resume(h, p);
+  fio_free(http);
+  fio_protocol_unlock(protocol, FIO_PR_LOCK_TASK);
+  return 0;
+}
+
+/**
  * Hijacks the socket away from the HTTP protocol and away from facil.io.
  */
 intptr_t http_hijack(http_s *h, fio_str_info_s *leftover) {
