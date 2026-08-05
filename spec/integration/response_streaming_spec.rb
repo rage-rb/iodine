@@ -17,6 +17,14 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
     expect(consume_body(response)).to eq(expected)
   end
 
+  it 'invokes the callable body in the current Fiber' do
+    response = http_get("/")
+    expect(consume_body(response)).to eq(expected)
+
+    state = http_get('/stream-state')
+    expect(consume_body(state)).to eq('same_fiber=true')
+  end
+
   it 'uses chunked transfer encoding, not Content-Length' do
     response = http_get("/")
     expect(response.chunked?).to be(true)

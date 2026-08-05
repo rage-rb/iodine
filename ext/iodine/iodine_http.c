@@ -548,21 +548,6 @@ static VALUE for_each_body_string(VALUE str, VALUE body_, int argc,
   (void)blockarg;
 }
 
-// Runs a streaming body (`body.call(stream)`) inside a dedicated fiber,
-// `pair` is [body, stream].
-static VALUE iodine_stream_run_producer(RB_BLOCK_CALL_FUNC_ARGLIST(first, pair)) {
-  VALUE body = RARRAY_AREF(pair, 0);
-  VALUE stream = RARRAY_AREF(pair, 1);
-  IodineCaller.call2(body, iodine_call_proc_id, 1, &stream);
-  // idempotent auto-close so the response finalizes even if the app didn't.
-  IodineCaller.call(stream, close_method_id);
-  return Qnil;
-  (void)first;
-  (void)argc;
-  (void)argv;
-  (void)blockarg;
-}
-
 static inline int ruby2c_response_send(iodine_http_request_handle_s *handle,
                                        VALUE rbresponse, VALUE env) {
   (void)(env);
@@ -605,13 +590,15 @@ static inline int ruby2c_response_send(iodine_http_request_handle_s *handle,
       IodineCaller.call(body, close_method_id);
     return 0;
   } else if (rb_respond_to(body, iodine_call_proc_id)) {
-    // Rack streaming body: run body.call(stream) inside a managed fiber
-    // (pause/resume wiring lands in a follow-up step.)
-    VALUE stream = IodineRackStream.create(handle->h, Qnil);
-    VALUE pair = rb_ary_new_from_args(2, body, stream);
-    VALUE fiber = rb_fiber_new(iodine_stream_run_producer, pair);
-    rb_fiber_resume(fiber, 0, NULL);
-    handle->type = IODINE_HTTP_NONE; // fully handled here; nothing left to send
+    // Rage owns producer scheduling. Iodine invokes the callable
+    VALUE stream = IodineRackStream.create(handle->h);
+    if (stream == Qnil)
+      return -1;
+    IodineCaller.call2(body, iodine_call_proc_id, 1, &stream);
+    // Transitional safety: until the pause/token lifecycle lands, close before
+    // the raw HTTP handle can escape this request callback.
+    IodineCaller.call(stream, close_method_id);
+    handle->type = IODINE_HTTP_NONE;
     return 0;
   }
   return -1;

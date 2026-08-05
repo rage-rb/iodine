@@ -6,7 +6,7 @@ typedef enum {
   IODINE_STREAM_IDLE = 0,     /* created, nothing written yet */
   IODINE_STREAM_HEADERS_SENT, /* first write flushed the response headers */
   IODINE_STREAM_STREAMING,    /* chunks flowing */
-  IODINE_STREAM_BLOCKED,      /* paused on backpressure, fiber yielded */
+  IODINE_STREAM_BLOCKED,      /* caller must wait for readiness and retry */
   IODINE_STREAM_CLOSING,      /* close requested, finishing safely */
   IODINE_STREAM_CLOSED,       /* terminal: completed */
   IODINE_STREAM_ERROR,        /* terminal: write failure / disconnect */
@@ -17,7 +17,6 @@ typedef struct {
   http_s *h;
   intptr_t uuid;               /* socket uuid, for fio_pending / fio_is_valid */
   iodine_stream_state_e state;
-  VALUE fiber;                 /* producer fiber; also held as an ivar so the GC marks it */
   size_t high_watermark;       /* pause threshold */
   size_t low_watermark;        /* resume threshold */
   int blocked;                 /* backpressure flag */
@@ -38,7 +37,6 @@ Core data / helpers
 static VALUE rRackStream;
 
 static ID ctx_var_id;   /* ivar holding the stream_ctx_t pointer */
-static ID fiber_var_id; /* ivar holding the producer fiber */
 static ID iodine_new_func_id;
 
 /* write() return values (cached symbols) */
@@ -64,7 +62,6 @@ static void stream_teardown(VALUE stream) {
   ctx->freed = 1;
   ctx->state = IODINE_STREAM_CLOSED;
   set_ctx(stream, NULL);
-  rb_ivar_set(stream, fiber_var_id, Qnil);
   free(ctx);
 }
 
@@ -103,8 +100,8 @@ static VALUE rack_stream_write(VALUE self, VALUE data) {
     return SYM_error;
   }
 
-  /* 6. backpressure -> yield/retry (write would overflow HARD, or past HIGH)
-   * TODO: register http_pause here and resume from http1_on_ready at LOW. */
+  /* 6. backpressure -> caller-owned wait/retry (would overflow HARD or past HIGH)
+   * TODO(phase-3): publish readiness from http1_on_ready at LOW. */
   if (pending + packets_needed >= IODINE_STREAM_HARD_MAX ||
       pending >= ctx->high_watermark) {
     ctx->blocked = 1;
@@ -159,7 +156,7 @@ static VALUE rack_stream_is_closed(VALUE self) {
 C land API
 ***************************************************************************** */
 
-static VALUE new_rack_stream(http_s *h, VALUE fiber) {
+static VALUE new_rack_stream(http_s *h) {
   stream_ctx_t *ctx = malloc(sizeof(*ctx));
   if (!ctx)
     return Qnil;
@@ -167,7 +164,6 @@ static VALUE new_rack_stream(http_s *h, VALUE fiber) {
       .h = h,
       .uuid = http_uuid(h), /* stable connection id; cached for the write path */
       .state = IODINE_STREAM_IDLE,
-      .fiber = fiber,
       .high_watermark = IODINE_STREAM_HIGH_WATERMARK,
       .low_watermark = IODINE_STREAM_LOW_WATERMARK,
       .blocked = 0,
@@ -176,8 +172,6 @@ static VALUE new_rack_stream(http_s *h, VALUE fiber) {
 
   VALUE stream = rb_funcall2(rRackStream, iodine_new_func_id, 0, NULL);
   set_ctx(stream, ctx);
-  /* hold the fiber as an ivar so Ruby's GC keeps it alive while blocked. */
-  rb_ivar_set(stream, fiber_var_id, fiber);
   return stream;
 }
 
@@ -191,7 +185,6 @@ static void init_rack_stream(void) {
   rRackStream = rb_define_class_under(IodineBaseModule, "RackStream", rb_cObject);
 
   ctx_var_id = rb_intern("stream_ctx");
-  fiber_var_id = rb_intern("stream_fiber");
   iodine_new_func_id = rb_intern("new");
 
   SYM_ok = ID2SYM(rb_intern("ok"));
