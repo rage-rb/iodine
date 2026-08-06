@@ -339,7 +339,8 @@ static void http1_on_pause(http_s *h, http_fio_protocol_s *pr) {
  * called after the resume task had completed.
  */
 static void http1_on_resume(http_s *h, http_fio_protocol_s *pr) {
-  if (!((http1pr_s *)pr)->stop) {
+  http1pr_s *p = (http1pr_s *)pr;
+  if (!p->stop || p->streaming) {
     fio_resume(pr->uuid);
   }
   (void)h;
