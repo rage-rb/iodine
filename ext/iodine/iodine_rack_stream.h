@@ -7,7 +7,6 @@
 
 extern struct IodineRackStream {
   VALUE (*create)(http_s *h);
-  void (*pause)(VALUE stream);
   void (*init)(void);
 
 } IodineRackStream;

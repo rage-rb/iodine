@@ -28,8 +28,7 @@ typedef struct http1pr_s {
   uint8_t close;
   uint8_t is_client;
   uint8_t stop;
-  uint8_t paused;
-  uint8_t pause_counted;
+  uint8_t streaming;
   http_stream_state_e stream_state;
   uint8_t buf[];
 } http1pr_s;
@@ -52,7 +51,7 @@ inline static void h1_reset(http1pr_s *p) { p->header_size = 0; }
 static inline void http1_after_finish(http_s *h) {
   http1pr_s *p = handle2pr(h);
   p->stop = p->stop & (~1UL);
-  p->paused = 0;
+  p->streaming = 0;
   p->stream_state = HTTP_STREAM_IDLE;
   if (h != &p->request) {
     http_s_destroy(h, 0);
@@ -292,6 +291,24 @@ static int http1_stream(http_s *h, void *data, uintptr_t length) {
   return 0;
 }
 
+/** Marks the in-progress response as streaming: the parser must not
+ * auto-finish it and must not parse further pipelined requests until the
+ * stream completes. */
+static void http1_streaming_start(http_s *h) {
+  handle2pr(h)->streaming = 1;
+}
+
+/** Completes a streaming response: sends the terminating chunk via
+ * `http_finish`, then re-arms the parser for any buffered pipelined data
+ * that was suspended while the stream was active. */
+static void http1_streaming_end(http_s *h) {
+  http1pr_s *p = handle2pr(h);
+  const intptr_t uuid = p->p.uuid;
+  p->streaming = 0;
+  http_finish(h);
+  fio_force_event(uuid, FIO_EVENT_ON_DATA);
+}
+
 /** Push for data - unsupported. */
 static int http1_push_data(http_s *h, void *data, uintptr_t length,
                            FIOBJ mime_type) {
@@ -313,12 +330,8 @@ static int http1_push_file(http_s *h, FIOBJ filename, FIOBJ mime_type) {
  * Called befor a pause task,
  */
 static void http1_on_pause(http_s *h, http_fio_protocol_s *pr) {
-  http1pr_s *p = (http1pr_s *)pr;
-  if (!p->pause_counted) {
-    fio_pause(pr->uuid);
-    p->pause_counted = 1;
-  }
-  p->paused = 1;
+  ((http1pr_s *)pr)->stop = 1;
+  fio_pause(pr->uuid);
   (void)h;
 }
 
@@ -326,9 +339,7 @@ static void http1_on_pause(http_s *h, http_fio_protocol_s *pr) {
  * called after the resume task had completed.
  */
 static void http1_on_resume(http_s *h, http_fio_protocol_s *pr) {
-  http1pr_s *p = (http1pr_s *)pr;
-  if (!p->paused && p->pause_counted) {
-    p->pause_counted = 0;
+  if (!((http1pr_s *)pr)->stop) {
     fio_resume(pr->uuid);
   }
   (void)h;
@@ -604,6 +615,8 @@ struct http_vtable_s HTTP1_VTABLE = {
     .http_send_body = http1_send_body,
     .http_sendfile = http1_sendfile,
     .http_stream = http1_stream,
+    .http_streaming_start = http1_streaming_start,
+    .http_streaming_end = http1_streaming_end,
     .http_finish = htt1p_finish,
     .http_push_data = http1_push_data,
     .http_push_file = http1_push_file,
@@ -626,7 +639,7 @@ Parser Callbacks
 static int http1_on_request(http1_parser_s *parser) {
   http1pr_s *p = parser2http(parser);
   http_on_request_handler______internal(&http1_pr2handle(p), p->p.settings);
-  if (p->request.method && !p->stop && !p->paused)
+  if (p->request.method && !p->stop && !p->streaming)
     http_finish(&p->request);
   h1_reset(p);
   return fio_is_closed(p->p.uuid);
@@ -635,7 +648,7 @@ static int http1_on_request(http1_parser_s *parser) {
 static int http1_on_response(http1_parser_s *parser) {
   http1pr_s *p = parser2http(parser);
   http_on_response_handler______internal(&http1_pr2handle(p), p->p.settings);
-  if (p->request.status_str && !p->stop && !p->paused)
+  if (p->request.status_str && !p->stop && !p->streaming)
     http_finish(&p->request);
   h1_reset(p);
   return fio_is_closed(p->p.uuid);
@@ -764,7 +777,7 @@ static inline void http1_consume_data(intptr_t uuid, http1pr_s *p) {
     i = http1_parse(&p->parser, p->buf + (org_len - p->buf_len), p->buf_len);
     p->buf_len -= i;
     --pipeline_limit;
-  } while (i && p->buf_len && pipeline_limit && !p->stop && !p->paused);
+  } while (i && p->buf_len && pipeline_limit && !p->stop && !p->streaming);
 
   if (p->buf_len && org_len != p->buf_len) {
     memmove(p->buf, p->buf + (org_len - p->buf_len), p->buf_len);
@@ -796,7 +809,7 @@ throttle:
 /** called when a data is available, but will not run concurrently */
 static void http1_on_data(intptr_t uuid, fio_protocol_s *protocol) {
   http1pr_s *p = (http1pr_s *)protocol;
-  if (p->stop || p->paused) {
+  if (p->stop || p->streaming) {
     fio_suspend(uuid);
     return;
   }
@@ -891,10 +904,6 @@ fio_protocol_s *http1_new(uintptr_t uuid, http_settings_s *settings,
 /** Manually destroys the HTTP1 protocol object. */
 void http1_destroy(fio_protocol_s *pr) {
   http1pr_s *p = (http1pr_s *)pr;
-  if (p->pause_counted) {
-    p->pause_counted = 0;
-    fio_resume(p->p.uuid);
-  }
   http1_pr2handle(p).status = 0;
   http_s_destroy(&http1_pr2handle(p), 0);
   // FIO_LOG_DEBUG("Deallocating HTTP/1.1 protocol %p(%d)=>%p", (void

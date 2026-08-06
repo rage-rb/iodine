@@ -379,6 +379,29 @@ intptr_t http_uuid(http_s *h) {
 }
 
 /**
+ * Marks the response as a streaming response: the connection's protocol will
+ * not auto-finalize it when the request callback returns, and the `http_s`
+ * handle remains valid until `http_streaming_end` completes the response.
+ */
+void http_streaming_start(http_s *h) {
+  if (HTTP_INVALID_HANDLE(h))
+    return;
+  ((http_vtable_s *)h->private_data.vtbl)->http_streaming_start(h);
+}
+
+/**
+ * Completes a streaming response: sends the terminating chunk via
+ * `http_finish` and resumes normal request handling on the connection.
+ *
+ * AFTER THIS FUNCTION IS CALLED, THE `http_s` OBJECT IS NO LONGER VALID.
+ */
+void http_streaming_end(http_s *h) {
+  if (HTTP_INVALID_HANDLE(h))
+    return;
+  ((http_vtable_s *)h->private_data.vtbl)->http_streaming_end(h);
+}
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * Returns -1 on error and 0 on success.
@@ -829,40 +852,6 @@ void http_resume(http_pause_handle_s *http, void (*task)(http_s *h),
   fio_defer_io_task(http->uuid, .udata = http, .type = FIO_PR_LOCK_TASK,
                     .task = http_resume_wrapper,
                     .fallback = http_resume_fallback_wrapper);
-}
-
-/**
- * Attempts to resume a paused request synchronously.
- */
-int http_resume_try(http_pause_handle_s *http,
-                    void (*task)(http_s *h, void *udata), void *udata,
-                    void (*fallback)(void *udata)) {
-  if (!http)
-    return -1;
-
-  fio_protocol_s *protocol =
-      fio_protocol_try_lock(http->uuid, FIO_PR_LOCK_TASK);
-  if (!protocol) {
-    if (errno != EBADF)
-      return 1;
-    if (fallback)
-      fallback(http->udata);
-    fio_free(http);
-    return -1;
-  }
-
-  http_fio_protocol_s *p = (http_fio_protocol_s *)protocol;
-  http_s *h = http->h;
-  h->udata = http->udata;
-  h->fiber = http->fiber;
-  h->subscription = http->subscription;
-  http_vtable_s *vtbl = (http_vtable_s *)h->private_data.vtbl;
-  if (task)
-    task(h, udata);
-  vtbl->http_on_resume(h, p);
-  fio_free(http);
-  fio_protocol_unlock(protocol, FIO_PR_LOCK_TASK);
-  return 0;
 }
 
 /**

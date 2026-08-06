@@ -231,6 +231,24 @@ int http_stream(http_s *h, void *data, uintptr_t length);
 intptr_t http_uuid(http_s *h);
 
 /**
+ * Marks the response as a streaming response.
+ *
+ * The connection's protocol will not auto-finalize the response when the
+ * request callback returns, and the `http_s` handle remains valid for
+ * repeated `http_stream` calls until `http_streaming_end` completes the
+ * response.
+ */
+void http_streaming_start(http_s *h);
+
+/**
+ * Completes a streaming response: sends the terminating chunk via
+ * `http_finish` and resumes normal request handling on the connection.
+ *
+ * AFTER THIS FUNCTION IS CALLED, THE `http_s` OBJECT IS NO LONGER VALID.
+ */
+void http_streaming_end(http_s *h);
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * The file is closed automatically.
@@ -344,22 +362,6 @@ void http_pause(http_s *h, void (*task)(http_pause_handle_s *http));
  */
 void http_resume(http_pause_handle_s *http, void (*task)(http_s *h),
                  void (*fallback)(void *udata));
-
-/**
- * Attempts to resume a paused request synchronously without waiting for the
- * connection task lock.
- *
- * Returns 0 after consuming `http` and running `task`, 1 when the connection
- * lock is busy (the handle remains valid for a later retry), and -1 when the
- * connection was closed (the handle is consumed and `fallback` is called).
- *
- * As with `http_resume`, `task` MUST send, finish, or pause the response before
- * returning. `udata` is passed only to `task`; `fallback` receives the paused
- * response's stored `udata`.
- */
-int http_resume_try(http_pause_handle_s *http,
-                    void (*task)(http_s *h, void *udata), void *udata,
-                    void (*fallback)(void *udata));
 
 /** Returns the `udata` associated with the paused opaque handle */
 void *http_paused_udata_get(http_pause_handle_s *http);

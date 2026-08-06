@@ -50,6 +50,15 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
     expect(first_seen[4] - first_seen[0]).to be > 0.1
   end
 
+  it 'completes the response cleanly after an oversized write fails the stream' do
+    response = http_get('/oversized')
+    expect(response.status).to eq(200)
+    expect(consume_body(response)).to eq("")
+
+    result = http_get('/oversized-result')
+    expect(consume_body(result)).to eq('result=error')
+  end
+
   it 'keeps streaming after the callable returns' do
     body = +""
     released = false

@@ -2,6 +2,7 @@
 # The body responds to `call(stream)` (Rack streaming body), so Iodine should
 # hand it a RackStream writer and stream each chunk incrementally.
 same_fiber = nil
+oversized_result = nil
 release_channel = "response-streaming-release"
 
 run ->(env) do
@@ -12,6 +13,19 @@ run ->(env) do
   if env['PATH_INFO'] == '/release'
     Iodine.publish(release_channel, '', Iodine::PubSub::PROCESS)
     next [204, {}, []]
+  end
+
+  if env['PATH_INFO'] == '/oversized'
+    body = proc do |stream|
+      oversized_result = stream.write("x" * (2 * 1024 * 1024))
+      stream.close
+    end
+
+    next [200, {}, body]
+  end
+
+  if env['PATH_INFO'] == '/oversized-result'
+    next [200, {}, ["result=#{oversized_result}"]]
   end
 
   if env['PATH_INFO'] == '/async'

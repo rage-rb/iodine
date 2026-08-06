@@ -46,6 +46,10 @@ struct http_vtable_s {
                              uintptr_t offset);
   /** Should send existing headers and data and prepare for streaming */
   int (*const http_stream)(http_s *h, void *data, uintptr_t length);
+  /** Should mark the response as streaming, preventing auto-finalization */
+  void (*const http_streaming_start)(http_s *h);
+  /** Should complete a streaming response and resume request handling */
+  void (*const http_streaming_end)(http_s *h);
   /** Should send existing headers or complete streaming */
   void (*const http_finish)(http_s *h);
   /** Push for data. */
