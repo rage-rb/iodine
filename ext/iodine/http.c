@@ -91,6 +91,13 @@ static inline void remove_content_length(http_s *r) {
   fiobj_hash_delete2(r->private_data.out_headers, cl_hash);
 }
 
+static inline void remove_transfer_encoding(http_s *r) {
+  static uint64_t te_hash = 0;
+  if (!te_hash)
+    te_hash = fiobj_hash_string("transfer-encoding", 17);
+  fiobj_hash_delete2(r->private_data.out_headers, te_hash);
+}
+
 static inline void add_content_type(http_s *r) {
   static uint64_t ct_hash = 0;
   if (!ct_hash)
@@ -386,6 +393,8 @@ intptr_t http_uuid(http_s *h) {
 void http_streaming_start(http_s *h) {
   if (HTTP_INVALID_HANDLE(h))
     return;
+  remove_content_length(h);
+  remove_transfer_encoding(h);
   ((http_vtable_s *)h->private_data.vtbl)->http_streaming_start(h);
 }
 

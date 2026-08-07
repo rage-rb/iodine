@@ -15,6 +15,59 @@ run ->(env) do
     next [204, {}, []]
   end
 
+  if env['PATH_INFO'] == '/conflicting-length'
+    body = proc do |stream|
+      stream.write("hello ")
+      stream.write("world")
+      stream.close
+    end
+
+    next [200, { 'Content-Length' => '999' }, body]
+  end
+
+  if env['PATH_INFO'] == '/no-write'
+    body = proc do |stream|
+      stream.close
+    end
+
+    next [200, { 'Content-Length' => '5' }, body]
+  end
+
+  if env['PATH_INFO'] == '/te-no-write'
+    body = proc do |stream|
+      stream.close
+    end
+
+    next [200, { 'Transfer-Encoding' => 'chunked' }, body]
+  end
+
+  if env['PATH_INFO'] == '/te-write'
+    body = proc do |stream|
+      stream.write("hello")
+      stream.close
+    end
+
+    next [200, { 'Transfer-Encoding' => 'chunked' }, body]
+  end
+
+  if env['PATH_INFO'] == '/framing-oversized'
+    body = proc do |stream|
+      stream.write("x" * (2 * 1024 * 1024))
+      stream.close
+    end
+
+    next [200, { 'Transfer-Encoding' => 'chunked', 'Content-Length' => '999' }, body]
+  end
+
+  if env['PATH_INFO'] == '/empty-write'
+    body = proc do |stream|
+      stream.write("")
+      stream.close
+    end
+
+    next [200, {}, body]
+  end
+
   if env['PATH_INFO'] == '/oversized'
     body = proc do |stream|
       oversized_result = stream.write("x" * (2 * 1024 * 1024))

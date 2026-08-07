@@ -237,6 +237,11 @@ intptr_t http_uuid(http_s *h);
  * request callback returns, and the `http_s` handle remains valid for
  * repeated `http_stream` calls until `http_streaming_end` completes the
  * response.
+ *
+ * Any application-supplied `Content-Length` or `Transfer-Encoding` header is
+ * removed: the streaming transport owns the response framing (it adds
+ * `Transfer-Encoding: chunked` on the first write, or `Content-Length: 0`
+ * when the stream closes without writing).
  */
 void http_streaming_start(http_s *h);
 

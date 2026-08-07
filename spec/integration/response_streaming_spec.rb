@@ -50,6 +50,56 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
     expect(first_seen[4] - first_seen[0]).to be > 0.1
   end
 
+  it 'strips a conflicting application-supplied Content-Length' do
+    response = http_get('/conflicting-length')
+    expect(response.status).to eq(200)
+    expect(response.chunked?).to be(true)
+    expect(response.headers).not_to include('Content-Length')
+    expect(consume_body(response)).to eq('hello world')
+  end
+
+  it 'strips an application-supplied Transfer-Encoding when the stream closes without writing' do
+    response = http_get('/te-no-write')
+    expect(response.status).to eq(200)
+    expect(response.chunked?).to be(false)
+    expect(response.headers.get('Transfer-Encoding')).to be_empty
+    expect(response.headers['Content-Length']).to eq('0')
+    expect(consume_body(response)).to eq("")
+  end
+
+  it 'strips application-supplied framing headers when an oversized write fails the stream' do
+    response = http_get('/framing-oversized')
+    expect(response.status).to eq(200)
+    expect(response.chunked?).to be(false)
+    expect(response.headers.get('Transfer-Encoding')).to be_empty
+    expect(response.headers['Content-Length']).to eq('0')
+    expect(consume_body(response)).to eq("")
+  end
+
+  it 'sends exactly one Transfer-Encoding: chunked on a successful write' do
+    response = http_get('/te-write')
+    expect(response.status).to eq(200)
+    expect(response.headers.get('Transfer-Encoding')).to eq(['chunked'])
+    expect(response.headers.get('Content-Length')).to be_empty
+    expect(consume_body(response)).to eq('hello')
+  end
+
+  it 'completes a stream closed without writing as a normal empty response' do
+    response = http_get('/no-write')
+    expect(response.status).to eq(200)
+    expect(response.chunked?).to be(false)
+    expect(response.headers['Content-Length']).to eq('0')
+    expect(consume_body(response)).to eq("")
+  end
+
+  it 'starts chunked framing on an explicit empty first write' do
+    response = http_get('/empty-write')
+    expect(response.status).to eq(200)
+    expect(response.chunked?).to be(true)
+    expect(response.headers).not_to include('Content-Length')
+    expect(consume_body(response)).to eq("")
+  end
+
   it 'completes the response cleanly after an oversized write fails the stream' do
     response = http_get('/oversized')
     expect(response.status).to eq(200)
