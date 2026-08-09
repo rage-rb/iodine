@@ -6,6 +6,7 @@ oversized_result = nil
 release_channel = "response-streaming-release"
 backpressure = nil
 backpressure_close = nil
+double_close = nil
 
 run ->(env) do
   if env['PATH_INFO'] == '/stream-state'
@@ -81,6 +82,40 @@ run ->(env) do
 
   if env['PATH_INFO'] == '/oversized-result'
     next [200, {}, ["result=#{oversized_result}"]]
+  end
+
+  # Non-streaming response regressions.
+  if env['PATH_INFO'] == '/each-body'
+    next [200, {}, ['each-', 'body-', 'ok']]
+  end
+
+  if env['PATH_INFO'] == '/status-only'
+    next [204, {}, []]
+  end
+
+  if env['PATH_INFO'] == '/double-close'
+    state = {}
+    double_close = state
+
+    body = proc do |stream|
+      stream.write("payload")
+      state[:first_close] = stream.close.inspect
+      state[:closed_after_first] = stream.closed?
+      state[:second_close] = stream.close.inspect
+      state[:write_after_close] = stream.write("late")
+      state[:wake_channel_after_close] = stream.wake_channel.inspect
+    end
+
+    next [200, {}, body]
+  end
+
+  if env['PATH_INFO'] == '/double-close-result'
+    s = double_close || {}
+    next [200, {}, [
+      "first_close=#{s[:first_close]} second_close=#{s[:second_close]} " \
+      "closed=#{s[:closed_after_first]} write_after_close=#{s[:write_after_close]} " \
+      "wake_channel=#{s[:wake_channel_after_close]}"
+    ]]
   end
 
   if ['/backpressure', '/backpressure-close'].include?(env['PATH_INFO'])
@@ -167,7 +202,10 @@ run ->(env) do
 
   if env['PATH_INFO'] == '/backpressure-result'
     s = backpressure || {}
-    next [200, {}, ["result=#{s[:result]} sent=#{s[:sent]} would_blocks=#{s[:would_blocks]} wakes=#{s[:wakes]}"]]
+    next [200, {}, [
+      "result=#{s[:result]} sent=#{s[:sent]} would_blocks=#{s[:would_blocks]} " \
+      "wakes=#{s[:wakes]} finished=#{s[:finished]} unsubscribed=#{s[:unsubscribed]}"
+    ]]
   end
 
   if env['PATH_INFO'] == '/backpressure-close-result'

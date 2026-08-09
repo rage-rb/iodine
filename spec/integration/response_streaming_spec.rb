@@ -1,5 +1,4 @@
 require 'spec_helper'
-require 'timeout'
 
 # Functional tests for HTTP response streaming: a real Iodine server runs the
 # `response_streaming` app and the HTTP gem consumes the response incrementally.
@@ -26,48 +25,6 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
       end
       sleep 0.05
     end
-  end
-
-  def read_chunked_response(socket)
-    status = socket.gets("\r\n")
-    raise EOFError, 'connection closed before response status' unless status
-
-    headers = {}
-    while (line = socket.gets("\r\n")) && line != "\r\n"
-      name, value = line.delete_suffix("\r\n").split(':', 2)
-      headers[name.downcase] = value&.strip
-    end
-    raise EOFError, 'connection closed before response headers completed' unless line
-    unless headers['transfer-encoding'] == 'chunked'
-      raise "expected chunked response, got #{headers.inspect}"
-    end
-
-    body = +""
-    loop do
-      size_line = socket.gets("\r\n")
-      raise EOFError, 'connection closed before chunk size' unless size_line
-
-      size = size_line.split(';', 2).first.to_i(16)
-      if size.zero?
-        loop do
-          trailer = socket.gets("\r\n")
-          unless trailer
-            raise EOFError, 'connection closed before chunk trailers completed'
-          end
-          break if trailer == "\r\n"
-        end
-        break
-      end
-
-      chunk = socket.read(size)
-      unless chunk&.bytesize == size
-        raise EOFError, 'connection closed inside response chunk'
-      end
-      raise 'invalid chunk terminator' unless socket.read(2) == "\r\n"
-      body << chunk
-    end
-
-    [status, body]
   end
 
   it 'responds 200 and reassembles the full streamed body' do
@@ -168,6 +125,61 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
     expect(consume_body(result)).to eq('result=error')
   end
 
+  it 'serves a multi-part each body through the buffered non-streaming path' do
+    response = http_get('/each-body')
+    expect(response.status).to eq(200)
+    expect(response.chunked?).to be(false)
+    expect(response.headers['Content-Length']).to eq('12')
+    expect(consume_body(response)).to eq('each-body-ok')
+  end
+
+  it 'serves a status-only response through the empty non-streaming path' do
+    response = http_get('/status-only')
+    expect(response.status).to eq(204)
+    expect(response.headers.get('Transfer-Encoding')).to be_empty
+    # Iodine's http_finish adds Content-Length: 0 to every header-only
+    # response, including 204. RFC 9110 forbids it on 204; worth raising
+    # upstream separately.
+    expect(response.headers['Content-Length']).to eq('0')
+    expect(response.headers.get('Content-Type')).to be_empty
+    expect(consume_body(response)).to eq("")
+  end
+
+  it 'serves a plain request after a streamed response on the same connection' do
+    http_client.persistent("http://localhost:#{server_port}") do |client|
+      streamed = client.get('/')
+      expect(streamed.status).to eq(200)
+      expect(streamed.chunked?).to be(true)
+      expect(streamed.headers['Connection']).to eq('keep-alive')
+      expect(consume_body(streamed)).to eq(expected)
+
+      plain = client.get('/each-body')
+      expect(plain.status).to eq(200)
+      expect(plain.chunked?).to be(false)
+      expect(plain.headers['Content-Length']).to eq('12')
+      expect(consume_body(plain)).to eq('each-body-ok')
+    end
+  end
+
+  it 'treats close as idempotent and rejects writes after the terminal state' do
+    http_client.persistent("http://localhost:#{server_port}") do |client|
+      response = client.get('/double-close')
+      expect(response.status).to eq(200)
+      expect(response.chunked?).to be(true)
+      expect(consume_body(response)).to eq('payload')
+
+      followup = client.get('/each-body')
+      expect(followup.status).to eq(200)
+      expect(consume_body(followup)).to eq('each-body-ok')
+    end
+
+    result = consume_body(http_get('/double-close-result'))
+    expect(result).to eq(
+      'first_close=nil second_close=nil closed=true ' \
+      'write_after_close=closed wake_channel=nil'
+    )
+  end
+
   it 'wakes a blocked producer when the outgoing queue drains' do
     response = http_get('/backpressure')
 
@@ -175,14 +187,18 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
 
     expect(consume_body(response)).to eq('x' * (256 * 16_384))
 
-    result = wait_for_backpressure { |r| r.include?('result=completed') }
-    expect(result).to match(/result=completed sent=256 would_blocks=[1-9]\d* wakes=[1-9]\d*/)
+    result = wait_for_backpressure do |r|
+      r.include?('result=completed') && r.include?('unsubscribed=true')
+    end
+    expect(result).to match(
+      /result=completed sent=256 would_blocks=[1-9]\d* wakes=[1-9]\d* finished=true unsubscribed=true/
+    )
   end
 
   it 'wakes a blocked producer when another callback closes the stream' do
-    socket = Socket.tcp('localhost', server_port)
-    socket.setsockopt(Socket::SOL_SOCKET, Socket::SO_RCVBUF, 16_384)
-    socket.write("GET /backpressure-close HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    # The body stays unconsumed until the server reports the close, so the
+    # outgoing queue backs up and the producer blocks on its own.
+    response = http_get('/backpressure-close')
 
     result = wait_for_backpressure(result_path: '/backpressure-close-result') do |r|
       r.include?('result=closed') && r.include?('unsubscribed=true')
@@ -193,46 +209,39 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
          closed_externally=true\s+finished=true\s+unsubscribed=true\z}x
     )
 
-    status, body = Timeout.timeout(10) { read_chunked_response(socket) }
     sent = result[/sent=(\d+)/, 1].to_i
-    expect(status).to start_with('HTTP/1.1 200')
-    expect(body).to eq('x' * (sent * 16_384))
-  ensure
-    socket&.close
+    expect(response.status).to eq(200)
+    expect(consume_body(response)).to eq('x' * (sent * 16_384))
   end
 
   it 'wakes a parked producer when the client disconnects mid-stream' do
-    sock = Socket.tcp('localhost', server_port)
-    begin
-      sock.write("GET /backpressure HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    client = http_client
+    client.get("http://localhost:#{server_port}/backpressure")
 
-      wait_for_backpressure { |r| r =~ /would_blocks=[1-9]/ }
-    ensure
-      sock.close
+    wait_for_backpressure { |r| r =~ /would_blocks=[1-9]/ }
+    client.close
+
+    result = wait_for_backpressure do |r|
+      r.include?('result=disconnected') && r.include?('unsubscribed=true')
     end
-
-    result = wait_for_backpressure { |r| r.include?('result=disconnected') }
-    expect(result).to match(/result=disconnected/)
+    expect(result).to match(/result=disconnected .*finished=true unsubscribed=true/)
 
     response = http_get('/te-write')
     expect(consume_body(response)).to eq('hello')
   end
 
-  it 'isolates wake subscriptions for pipelined streams on one connection' do
-    socket = Socket.tcp('localhost', server_port)
-    responses = Timeout.timeout(15) do
-      socket.write(
-        "GET /backpressure HTTP/1.1\r\nHost: localhost\r\n\r\n" \
-        "GET /backpressure HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-      )
-      [read_chunked_response(socket), read_chunked_response(socket)]
-    end
+  it 'isolates wake subscriptions for sequential streams on one connection' do
+    expected_stream = 'x' * (256 * 16_384)
 
-    expected = 'x' * (256 * 16_384)
-    expect(responses.map(&:first)).to all(start_with('HTTP/1.1 200'))
-    expect(responses.map(&:last)).to eq([expected, expected])
-  ensure
-    socket&.close
+    http_client.persistent("http://localhost:#{server_port}") do |client|
+      first = client.get('/backpressure')
+      expect(first.status).to eq(200)
+      expect(consume_body(first)).to eq(expected_stream)
+
+      second = client.get('/backpressure')
+      expect(second.status).to eq(200)
+      expect(consume_body(second)).to eq(expected_stream)
+    end
   end
 
   it 'keeps streaming after the callable returns' do
