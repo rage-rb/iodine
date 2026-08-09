@@ -411,6 +411,43 @@ void http_streaming_end(http_s *h) {
 }
 
 /**
+ * Arms a one-shot wake when the outgoing queue drains or the connection closes.
+ * Re-arm after each blocked write.
+ */
+void http_streaming_arm_wake(http_s *h) {
+  if (HTTP_INVALID_HANDLE(h))
+    return;
+  ((http_vtable_s *)h->private_data.vtbl)->http_streaming_arm_wake(h);
+}
+
+/**
+ * Copies the current streaming response's NUL-terminated wake channel name to
+ * `dest`. Returns its length, or 0 if `limit` is too small.
+ */
+size_t http_streaming_wake_channel(http_s *h, char *dest, size_t limit) {
+  static const char prefix[] = "iodine:stream:";
+  char channel[64];
+  if (HTTP_INVALID_HANDLE(h) || !dest)
+    return 0;
+
+  http_fio_protocol_s *p = (http_fio_protocol_s *)h->private_data.flag;
+  if (!p->stream_generation)
+    return 0;
+
+  memcpy(channel, prefix, sizeof(prefix) - 1);
+  size_t len = sizeof(prefix) - 1;
+  len += fio_ltoa(channel + len, (int64_t)p->uuid, 16);
+  channel[len++] = ':';
+  len += fio_ltoa(channel + len, (int64_t)p->stream_generation, 16);
+
+  if (limit <= len)
+    return 0;
+  memcpy(dest, channel, len);
+  dest[len] = 0;
+  return len;
+}
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * Returns -1 on error and 0 on success.

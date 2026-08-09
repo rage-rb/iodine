@@ -254,6 +254,26 @@ void http_streaming_start(http_s *h);
 void http_streaming_end(http_s *h);
 
 /**
+ * Arms a one-shot wake for the streaming response.
+ *
+ * The protocol publishes "drain" or "close" to the process-local wake channel
+ * when the socket queue drains or the connection closes. Re-arm after each
+ * blocked write.
+ */
+void http_streaming_arm_wake(http_s *h);
+
+/**
+ * Copies the current streaming response's NUL-terminated wake channel name to
+ * `dest`.
+ *
+ * The process-local name stays the same for this response and changes for later
+ * responses on the same keep-alive connection.
+ *
+ * Returns its length, or 0 if `limit` is too small. A 64-byte buffer is enough.
+ */
+size_t http_streaming_wake_channel(http_s *h, char *dest, size_t limit);
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * The file is closed automatically.

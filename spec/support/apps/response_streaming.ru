@@ -4,6 +4,8 @@
 same_fiber = nil
 oversized_result = nil
 release_channel = "response-streaming-release"
+backpressure = nil
+backpressure_close = nil
 
 run ->(env) do
   if env['PATH_INFO'] == '/stream-state'
@@ -79,6 +81,103 @@ run ->(env) do
 
   if env['PATH_INFO'] == '/oversized-result'
     next [200, {}, ["result=#{oversized_result}"]]
+  end
+
+  if ['/backpressure', '/backpressure-close'].include?(env['PATH_INFO'])
+    close_while_blocked = env['PATH_INFO'] == '/backpressure-close'
+    state = {
+      result: nil,
+      sent: 0,
+      would_blocks: 0,
+      wakes: 0,
+      last_wake: nil,
+      finished: false,
+      unsubscribed: false
+    }
+    if close_while_blocked
+      backpressure_close = state
+    else
+      backpressure = state
+    end
+
+    body = proc do |stream|
+      payload = "x" * 16_384
+      total = 256
+
+      producer = Fiber.new do
+        sent = 0
+        while sent < total
+          case (status = stream.write(payload))
+          when :ok
+            sent += 1
+            state[:sent] = sent
+          when :would_block
+            state[:would_blocks] += 1
+            Fiber.yield
+            state[:wakes] += 1
+          else
+            state[:result] = status
+            break
+          end
+        end
+        state[:result] ||= :completed
+        stream.close
+        state[:finished] = true
+      end
+
+      channel = stream.wake_channel
+      Iodine.subscribe(channel) do |_, message|
+        state[:last_wake] = message
+        producer.resume if producer.alive?
+        unless producer.alive?
+          Iodine.defer do
+            removed = Iodine.unsubscribe(channel)
+            state[:unsubscribed] = removed && !Iodine.subscribed?(channel)
+          end
+        end
+      end
+
+      if close_while_blocked
+        state[:close_scheduled] = true
+        Iodine.defer do
+          producer.resume
+          if producer.alive? && state[:would_blocks] > 0
+            state[:closed_externally] = true
+            stream.close
+          elsif !producer.alive?
+            Iodine.defer do
+              removed = Iodine.unsubscribe(channel)
+              state[:unsubscribed] = removed && !Iodine.subscribed?(channel)
+            end
+          end
+        end
+      else
+        producer.resume
+        unless producer.alive?
+          Iodine.defer do
+            removed = Iodine.unsubscribe(channel)
+            state[:unsubscribed] = removed && !Iodine.subscribed?(channel)
+          end
+        end
+      end
+    end
+
+    next [200, {}, body]
+  end
+
+  if env['PATH_INFO'] == '/backpressure-result'
+    s = backpressure || {}
+    next [200, {}, ["result=#{s[:result]} sent=#{s[:sent]} would_blocks=#{s[:would_blocks]} wakes=#{s[:wakes]}"]]
+  end
+
+  if env['PATH_INFO'] == '/backpressure-close-result'
+    s = backpressure_close || {}
+    next [200, {}, [
+      "result=#{s[:result]} sent=#{s[:sent]} would_blocks=#{s[:would_blocks]} " \
+      "wakes=#{s[:wakes]} last_wake=#{s[:last_wake]} " \
+      "close_scheduled=#{s[:close_scheduled]} closed_externally=#{s[:closed_externally]} " \
+      "finished=#{s[:finished]} unsubscribed=#{s[:unsubscribed]}"
+    ]]
   end
 
   if env['PATH_INFO'] == '/async'

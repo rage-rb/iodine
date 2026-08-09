@@ -5,7 +5,9 @@ RSpec.describe 'Iodine::Base::RackStream' do
     expect(defined?(Iodine::Base::RackStream)).to eq('constant')
   end
 
-  it 'exposes the writer API: write, close, closed?' do
-    expect(Iodine::Base::RackStream.instance_methods(false)).to include(:write, :close, :closed?)
+  it 'exposes the writer and wake-channel API' do
+    expect(Iodine::Base::RackStream.instance_methods(false)).to include(
+      :write, :close, :closed?, :wake_channel
+    )
   end
 end

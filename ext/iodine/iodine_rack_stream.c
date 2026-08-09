@@ -15,6 +15,8 @@ typedef enum {
 typedef struct {
   http_s *h;                   /* stays valid while the response is in streaming mode */
   intptr_t uuid;               /* socket uuid, for fio_pending / fio_is_valid */
+  char wake_channel[64];       /* fixed wake channel for this response */
+  size_t wake_channel_len;
   iodine_stream_state_e state;
   int freed;                   /* terminal guard: teardown runs exactly once */
 } stream_ctx_t;
@@ -96,11 +98,12 @@ static VALUE rack_stream_write(VALUE self, VALUE data) {
     return SYM_error;
   }
 
-  /* 6. backpressure -> caller-owned wait/retry (would overflow HARD or past HIGH)
-   * TODO(phase-3): publish readiness from http1_on_ready at LOW. */
+  /* 6. The caller waits and retries this chunk. A blocked write arms one wake
+   * for the next drain or disconnect; another blocked retry re-arms it. */
   if (pending + packets_needed >= IODINE_STREAM_HARD_MAX ||
       pending >= IODINE_STREAM_HIGH_WATERMARK) {
     ctx->state = IODINE_STREAM_BLOCKED;
+    http_streaming_arm_wake(ctx->h);
     return SYM_would_block;
   }
 
@@ -118,9 +121,20 @@ static VALUE rack_stream_write(VALUE self, VALUE data) {
     remaining -= n;
   } while (remaining);
 
-  if (ctx->state < IODINE_STREAM_STREAMING)
-    ctx->state = IODINE_STREAM_STREAMING; /* first write flushed the headers */
+  /* The first write flushes headers; any successful write clears BLOCKED. */
+  ctx->state = IODINE_STREAM_STREAMING;
   return SYM_ok;
+}
+
+/* Process-local channel for "drain" and "close" after :would_block. Ruby owns
+ * Fiber resumption; a retry re-arms the wake if it still blocks. */
+static VALUE rack_stream_wake_channel(VALUE self) {
+  stream_ctx_t *ctx = get_ctx(self);
+  if (!ctx || ctx->state >= IODINE_STREAM_CLOSED)
+    return Qnil;
+  if (!ctx->wake_channel_len)
+    return Qnil;
+  return rb_str_new(ctx->wake_channel, (long)ctx->wake_channel_len);
 }
 
 /* Closes the stream. Idempotent in every state. Sends the terminating
@@ -166,6 +180,8 @@ static VALUE new_rack_stream(http_s *h) {
   /* the response now outlives the request callback; only an explicit close
    * (http_streaming_end) finishes it. */
   http_streaming_start(h);
+  ctx->wake_channel_len = http_streaming_wake_channel(
+      h, ctx->wake_channel, sizeof(ctx->wake_channel));
 
   VALUE stream = rb_funcall2(rRackStream, iodine_new_func_id, 0, NULL);
   set_ctx(stream, ctx);
@@ -191,6 +207,7 @@ static void init_rack_stream(void) {
   rb_define_method(rRackStream, "write", rack_stream_write, 1);
   rb_define_method(rRackStream, "close", rack_stream_close, 0);
   rb_define_method(rRackStream, "closed?", rack_stream_is_closed, 0);
+  rb_define_method(rRackStream, "wake_channel", rack_stream_wake_channel, 0);
 }
 
 struct IodineRackStream IodineRackStream = {
