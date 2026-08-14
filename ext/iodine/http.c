@@ -422,11 +422,11 @@ void http_streaming_arm_wake(http_s *h) {
 
 /**
  * Copies the current streaming response's NUL-terminated wake channel name to
- * `dest`. Returns its length, or 0 if `limit` is too small.
+ * `dest`, which must hold at least `HTTP_WAKE_CHANNEL_MAX` bytes. Returns its
+ * length, or 0 if there's no active streaming response.
  */
-size_t http_streaming_wake_channel(http_s *h, char *dest, size_t limit) {
+size_t http_streaming_wake_channel(http_s *h, char dest[HTTP_WAKE_CHANNEL_MAX]) {
   static const char prefix[] = "iodine:stream:";
-  char channel[64];
   if (HTTP_INVALID_HANDLE(h) || !dest)
     return 0;
 
@@ -434,15 +434,11 @@ size_t http_streaming_wake_channel(http_s *h, char *dest, size_t limit) {
   if (!p->stream_generation)
     return 0;
 
-  memcpy(channel, prefix, sizeof(prefix) - 1);
+  memcpy(dest, prefix, sizeof(prefix) - 1);
   size_t len = sizeof(prefix) - 1;
-  len += fio_ltoa(channel + len, (int64_t)p->uuid, 16);
-  channel[len++] = ':';
-  len += fio_ltoa(channel + len, (int64_t)p->stream_generation, 16);
-
-  if (limit <= len)
-    return 0;
-  memcpy(dest, channel, len);
+  len += fio_ltoa(dest + len, (int64_t)p->uuid, 16);
+  dest[len++] = ':';
+  len += fio_ltoa(dest + len, (int64_t)p->stream_generation, 16);
   dest[len] = 0;
   return len;
 }

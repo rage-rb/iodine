@@ -847,9 +847,8 @@ static void http1_on_data(intptr_t uuid, fio_protocol_s *protocol) {
 /* Notify a blocked producer without calling Ruby here. */
 static void http1_stream_wake_publish(http1pr_s *p, const char *msg,
                                       size_t len) {
-  char channel[64];
-  size_t channel_len =
-      http_streaming_wake_channel(&p->request, channel, sizeof(channel));
+  char channel[HTTP_WAKE_CHANNEL_MAX];
+  size_t channel_len = http_streaming_wake_channel(&p->request, channel);
   if (!channel_len)
     return;
   fio_publish(.engine = FIO_PUBSUB_PROCESS,

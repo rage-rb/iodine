@@ -262,16 +262,20 @@ void http_streaming_end(http_s *h);
  */
 void http_streaming_arm_wake(http_s *h);
 
+/** Upper bound (including the NUL) for a wake channel name: the
+ * "iodine:stream:" prefix plus two hex numbers of up to 20 characters each. */
+#define HTTP_WAKE_CHANNEL_MAX 64
+
 /**
  * Copies the current streaming response's NUL-terminated wake channel name to
- * `dest`.
+ * `dest`, which must hold at least `HTTP_WAKE_CHANNEL_MAX` bytes.
  *
  * The process-local name stays the same for this response and changes for later
  * responses on the same keep-alive connection.
  *
- * Returns its length, or 0 if `limit` is too small. A 64-byte buffer is enough.
+ * Returns its length, or 0 if there's no active streaming response.
  */
-size_t http_streaming_wake_channel(http_s *h, char *dest, size_t limit);
+size_t http_streaming_wake_channel(http_s *h, char dest[HTTP_WAKE_CHANNEL_MAX]);
 
 /**
  * Sends the response headers and the specified file (the response's body).

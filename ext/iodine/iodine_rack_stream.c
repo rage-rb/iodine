@@ -15,7 +15,7 @@ typedef enum {
 typedef struct {
   http_s *h;                   /* stays valid while the response is in streaming mode */
   intptr_t uuid;               /* socket uuid, for fio_pending / fio_is_valid */
-  char wake_channel[64];       /* fixed wake channel for this response */
+  char wake_channel[HTTP_WAKE_CHANNEL_MAX]; /* fixed wake channel for this response */
   size_t wake_channel_len;
   iodine_stream_state_e state;
   int freed;                   /* terminal guard: teardown runs exactly once */
@@ -180,8 +180,7 @@ static VALUE new_rack_stream(http_s *h) {
   /* the response now outlives the request callback; only an explicit close
    * (http_streaming_end) finishes it. */
   http_streaming_start(h);
-  ctx->wake_channel_len = http_streaming_wake_channel(
-      h, ctx->wake_channel, sizeof(ctx->wake_channel));
+  ctx->wake_channel_len = http_streaming_wake_channel(h, ctx->wake_channel);
 
   VALUE stream = rb_funcall2(rRackStream, iodine_new_func_id, 0, NULL);
   set_ctx(stream, ctx);
