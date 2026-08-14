@@ -48,6 +48,9 @@ inline static void h1_reset(http1pr_s *p) { p->header_size = 0; }
 #define http1_pr2handle(pr) (((http1pr_s *)(pr))->request)
 #define handle2pr(h) ((http1pr_s *)h->private_data.flag)
 
+#define HTTP1_STREAM_WAKE_DRAIN "drain"
+#define HTTP1_STREAM_WAKE_CLOSE "close"
+
 static void http1_stream_wake_publish(http1pr_s *p, const char *msg,
                                       size_t len);
 
@@ -323,7 +326,7 @@ static void http1_streaming_end(http_s *h) {
   /* Explicit close wakes a blocked producer before http_finish resets it. */
   if (p->streaming && p->stream_wake) {
     p->stream_wake = 0;
-    http1_stream_wake_publish(p, "close", 5);
+    http1_stream_wake_publish(p, HTTP1_STREAM_WAKE_CLOSE, sizeof(HTTP1_STREAM_WAKE_CLOSE) - 1);
   }
   p->streaming = 0;
   http_finish(h);
@@ -865,7 +868,7 @@ static void http1_on_close(intptr_t uuid, fio_protocol_s *protocol) {
    * UUID; the callback UUID may be newer. The generation separates streams. */
   if (p->streaming && p->stream_wake) {
     p->stream_wake = 0;
-    http1_stream_wake_publish(p, "close", 5);
+    http1_stream_wake_publish(p, HTTP1_STREAM_WAKE_CLOSE, sizeof(HTTP1_STREAM_WAKE_CLOSE) - 1);
   }
   http1_destroy(protocol);
 }
@@ -881,7 +884,7 @@ static void http1_on_ready(intptr_t uuid, fio_protocol_s *protocol) {
   /* Wake a blocked producer after the socket queue drains. */
   if (p->streaming && p->stream_wake) {
     p->stream_wake = 0;
-    http1_stream_wake_publish(p, "drain", 5);
+    http1_stream_wake_publish(p, HTTP1_STREAM_WAKE_DRAIN, sizeof(HTTP1_STREAM_WAKE_DRAIN) - 1);
   }
 }
 
