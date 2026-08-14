@@ -301,8 +301,10 @@ static int http1_stream(http_s *h, void *data, uintptr_t length) {
  * stream completes. */
 static void http1_streaming_start(http_s *h) {
   http1pr_s *p = handle2pr(h);
-  if (!p->streaming && !(++p->p.stream_generation))
-    ++p->p.stream_generation; /* zero means no active stream */
+  if (!p->streaming) {
+    if (++p->p.stream_generation == 0)
+      p->p.stream_generation = 1; /* zero means no active stream */
+  }
   p->streaming = 1;
   p->stream_wake = 0;
 }
