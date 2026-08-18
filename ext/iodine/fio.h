@@ -457,7 +457,7 @@ Logging and testing helpers
 #define FIO_LOG____LENGTH_BORDER FIO_LOG_LENGTH_LIMIT
 #endif
 /** The logging level */
-int __attribute__((weak)) FIO_LOG_LEVEL;
+extern int FIO_LOG_LEVEL;
 
 #pragma weak FIO_LOG2STDERR
 void __attribute__((format(printf, 1, 0), weak))

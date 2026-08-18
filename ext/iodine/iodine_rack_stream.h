@@ -6,8 +6,7 @@
 #include "http.h"
 
 extern struct IodineRackStream {
-  VALUE (*create)(http_s *h, VALUE fiber);
-  void (*close)(VALUE stream);
+  VALUE (*create)(http_s *h);
   void (*init)(void);
 
 } IodineRackStream;

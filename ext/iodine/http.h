@@ -231,6 +231,53 @@ int http_stream(http_s *h, void *data, uintptr_t length);
 intptr_t http_uuid(http_s *h);
 
 /**
+ * Marks the response as a streaming response.
+ *
+ * The connection's protocol will not auto-finalize the response when the
+ * request callback returns, and the `http_s` handle remains valid for
+ * repeated `http_stream` calls until `http_streaming_end` completes the
+ * response.
+ *
+ * Any application-supplied `Content-Length` or `Transfer-Encoding` header is
+ * removed: the streaming transport owns the response framing (it adds
+ * `Transfer-Encoding: chunked` on the first write, or `Content-Length: 0`
+ * when the stream closes without writing).
+ */
+void http_streaming_start(http_s *h);
+
+/**
+ * Completes a streaming response: sends the terminating chunk via
+ * `http_finish` and resumes normal request handling on the connection.
+ *
+ * AFTER THIS FUNCTION IS CALLED, THE `http_s` OBJECT IS NO LONGER VALID.
+ */
+void http_streaming_end(http_s *h);
+
+/**
+ * Arms a one-shot wake for the streaming response.
+ *
+ * The protocol publishes "drain" or "close" to the process-local wake channel
+ * when the socket queue drains or the connection closes. Re-arm after each
+ * blocked write.
+ */
+void http_streaming_arm_wake(http_s *h);
+
+/** Upper bound (including the NUL) for a wake channel name: the
+ * "iodine:stream:" prefix plus two hex numbers of up to 20 characters each. */
+#define HTTP_WAKE_CHANNEL_MAX 64
+
+/**
+ * Copies the current streaming response's NUL-terminated wake channel name to
+ * `dest`, which must hold at least `HTTP_WAKE_CHANNEL_MAX` bytes.
+ *
+ * The process-local name stays the same for this response and changes for later
+ * responses on the same keep-alive connection.
+ *
+ * Returns its length, or 0 if there's no active streaming response.
+ */
+size_t http_streaming_wake_channel(http_s *h, char dest[HTTP_WAKE_CHANNEL_MAX]);
+
+/**
  * Sends the response headers and the specified file (the response's body).
  *
  * The file is closed automatically.

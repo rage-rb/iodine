@@ -46,6 +46,12 @@ struct http_vtable_s {
                              uintptr_t offset);
   /** Should send existing headers and data and prepare for streaming */
   int (*const http_stream)(http_s *h, void *data, uintptr_t length);
+  /** Should mark the response as streaming, preventing auto-finalization */
+  void (*const http_streaming_start)(http_s *h);
+  /** Should complete a streaming response and resume request handling */
+  void (*const http_streaming_end)(http_s *h);
+  /** Arms a one-shot drain or disconnect wake for a blocked stream */
+  void (*const http_streaming_arm_wake)(http_s *h);
   /** Should send existing headers or complete streaming */
   void (*const http_finish)(http_s *h);
   /** Push for data. */
@@ -75,6 +81,7 @@ struct http_fio_protocol_s {
   fio_protocol_s protocol;   /* facil.io protocol */
   intptr_t uuid;             /* socket uuid */
   http_settings_s *settings; /* pointer to HTTP settings */
+  uint64_t stream_generation; /* streaming response generation */
 };
 
 #define http2protocol(h) ((http_fio_protocol_s *)h->private_data.flag)

@@ -28,6 +28,8 @@ typedef struct http1pr_s {
   uint8_t close;
   uint8_t is_client;
   uint8_t stop;
+  uint8_t streaming;
+  uint8_t stream_wake;
   http_stream_state_e stream_state;
   uint8_t buf[];
 } http1pr_s;
@@ -46,10 +48,18 @@ inline static void h1_reset(http1pr_s *p) { p->header_size = 0; }
 #define http1_pr2handle(pr) (((http1pr_s *)(pr))->request)
 #define handle2pr(h) ((http1pr_s *)h->private_data.flag)
 
+#define HTTP1_STREAM_WAKE_DRAIN "drain"
+#define HTTP1_STREAM_WAKE_CLOSE "close"
+
+static void http1_stream_wake_publish(http1pr_s *p, const char *msg,
+                                      size_t len);
+
 /* cleanup an HTTP/1.1 handler object */
 static inline void http1_after_finish(http_s *h) {
   http1pr_s *p = handle2pr(h);
   p->stop = p->stop & (~1UL);
+  p->streaming = 0;
+  p->stream_wake = 0;
   p->stream_state = HTTP_STREAM_IDLE;
   if (h != &p->request) {
     http_s_destroy(h, 0);
@@ -289,6 +299,40 @@ static int http1_stream(http_s *h, void *data, uintptr_t length) {
   return 0;
 }
 
+/** Marks the in-progress response as streaming: the parser must not
+ * auto-finish it and must not parse further pipelined requests until the
+ * stream completes. */
+static void http1_streaming_start(http_s *h) {
+  http1pr_s *p = handle2pr(h);
+  if (!p->streaming) {
+    if (++p->p.stream_generation == 0)
+      p->p.stream_generation = 1; /* zero means no active stream */
+  }
+  p->streaming = 1;
+  p->stream_wake = 0;
+}
+
+/* Arm one wake notification for the next drain or disconnect. */
+static void http1_streaming_arm_wake(http_s *h) {
+  handle2pr(h)->stream_wake = 1;
+}
+
+/** Completes a streaming response: sends the terminating chunk via
+ * `http_finish`, then re-arms the parser for any buffered pipelined data
+ * that was suspended while the stream was active. */
+static void http1_streaming_end(http_s *h) {
+  http1pr_s *p = handle2pr(h);
+  const intptr_t uuid = p->p.uuid;
+  /* Explicit close wakes a blocked producer before http_finish resets it. */
+  if (p->streaming && p->stream_wake) {
+    p->stream_wake = 0;
+    http1_stream_wake_publish(p, HTTP1_STREAM_WAKE_CLOSE, sizeof(HTTP1_STREAM_WAKE_CLOSE) - 1);
+  }
+  p->streaming = 0;
+  http_finish(h);
+  fio_force_event(uuid, FIO_EVENT_ON_DATA);
+}
+
 /** Push for data - unsupported. */
 static int http1_push_data(http_s *h, void *data, uintptr_t length,
                            FIOBJ mime_type) {
@@ -319,7 +363,8 @@ static void http1_on_pause(http_s *h, http_fio_protocol_s *pr) {
  * called after the resume task had completed.
  */
 static void http1_on_resume(http_s *h, http_fio_protocol_s *pr) {
-  if (!((http1pr_s *)pr)->stop) {
+  http1pr_s *p = (http1pr_s *)pr;
+  if (!p->stop || p->streaming) {
     fio_resume(pr->uuid);
   }
   (void)h;
@@ -595,6 +640,9 @@ struct http_vtable_s HTTP1_VTABLE = {
     .http_send_body = http1_send_body,
     .http_sendfile = http1_sendfile,
     .http_stream = http1_stream,
+    .http_streaming_start = http1_streaming_start,
+    .http_streaming_end = http1_streaming_end,
+    .http_streaming_arm_wake = http1_streaming_arm_wake,
     .http_finish = htt1p_finish,
     .http_push_data = http1_push_data,
     .http_push_file = http1_push_file,
@@ -617,7 +665,7 @@ Parser Callbacks
 static int http1_on_request(http1_parser_s *parser) {
   http1pr_s *p = parser2http(parser);
   http_on_request_handler______internal(&http1_pr2handle(p), p->p.settings);
-  if (p->request.method && !p->stop)
+  if (p->request.method && !p->stop && !p->streaming)
     http_finish(&p->request);
   h1_reset(p);
   return fio_is_closed(p->p.uuid);
@@ -626,7 +674,7 @@ static int http1_on_request(http1_parser_s *parser) {
 static int http1_on_response(http1_parser_s *parser) {
   http1pr_s *p = parser2http(parser);
   http_on_response_handler______internal(&http1_pr2handle(p), p->p.settings);
-  if (p->request.status_str && !p->stop)
+  if (p->request.status_str && !p->stop && !p->streaming)
     http_finish(&p->request);
   h1_reset(p);
   return fio_is_closed(p->p.uuid);
@@ -755,7 +803,7 @@ static inline void http1_consume_data(intptr_t uuid, http1pr_s *p) {
     i = http1_parse(&p->parser, p->buf + (org_len - p->buf_len), p->buf_len);
     p->buf_len -= i;
     --pipeline_limit;
-  } while (i && p->buf_len && pipeline_limit && !p->stop);
+  } while (i && p->buf_len && pipeline_limit && !p->stop && !p->streaming);
 
   if (p->buf_len && org_len != p->buf_len) {
     memmove(p->buf, p->buf + (org_len - p->buf_len), p->buf_len);
@@ -787,7 +835,7 @@ throttle:
 /** called when a data is available, but will not run concurrently */
 static void http1_on_data(intptr_t uuid, fio_protocol_s *protocol) {
   http1pr_s *p = (http1pr_s *)protocol;
-  if (p->stop) {
+  if (p->stop || p->streaming) {
     fio_suspend(uuid);
     return;
   }
@@ -801,13 +849,31 @@ static void http1_on_data(intptr_t uuid, fio_protocol_s *protocol) {
   http1_consume_data(uuid, p);
 }
 
-/** called when the connection was closed, but will not run concurrently */
-static void http1_on_close(intptr_t uuid, fio_protocol_s *protocol) {
-  http1_destroy(protocol);
-  (void)uuid;
+/* Notify a blocked producer without calling Ruby here. */
+static void http1_stream_wake_publish(http1pr_s *p, const char *msg,
+                                      size_t len) {
+  char channel[HTTP_WAKE_CHANNEL_MAX];
+  size_t channel_len = http_streaming_wake_channel(&p->request, channel);
+  if (!channel_len)
+    return;
+  fio_publish(.engine = FIO_PUBSUB_PROCESS,
+              .channel = {.len = channel_len, .data = channel},
+              .message = {.len = len, .data = (char *)msg});
 }
 
 /** called when the connection was closed, but will not run concurrently */
+static void http1_on_close(intptr_t uuid, fio_protocol_s *protocol) {
+  http1pr_s *p = (http1pr_s *)protocol;
+  /* Wake blocked producers on disconnect. The protocol keeps the original
+   * UUID; the callback UUID may be newer. The generation separates streams. */
+  if (p->streaming && p->stream_wake) {
+    p->stream_wake = 0;
+    http1_stream_wake_publish(p, HTTP1_STREAM_WAKE_CLOSE, sizeof(HTTP1_STREAM_WAKE_CLOSE) - 1);
+  }
+  http1_destroy(protocol);
+}
+
+/** called when all pending socket data was sent (the queue drained) */
 static void http1_on_ready(intptr_t uuid, fio_protocol_s *protocol) {
   /* resume slow clients from suspension */
   http1pr_s *p = (http1pr_s *)protocol;
@@ -815,7 +881,11 @@ static void http1_on_ready(intptr_t uuid, fio_protocol_s *protocol) {
     p->stop ^= 4; /* flip back the bit, so it's zero */
     fio_force_event(uuid, FIO_EVENT_ON_DATA);
   }
-  (void)protocol;
+  /* Wake a blocked producer after the socket queue drains. */
+  if (p->streaming && p->stream_wake) {
+    p->stream_wake = 0;
+    http1_stream_wake_publish(p, HTTP1_STREAM_WAKE_DRAIN, sizeof(HTTP1_STREAM_WAKE_DRAIN) - 1);
+  }
 }
 
 /** called when a data is available for the first time */

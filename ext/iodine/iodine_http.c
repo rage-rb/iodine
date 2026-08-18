@@ -589,6 +589,14 @@ static inline int ruby2c_response_send(iodine_http_request_handle_s *handle,
     if (rb_respond_to(body, close_method_id))
       IodineCaller.call(body, close_method_id);
     return 0;
+  } else if (rb_respond_to(body, iodine_call_proc_id)) {
+    // Rage owns producer scheduling. Iodine invokes the callable
+    VALUE stream = IodineRackStream.create(handle->h);
+    if (stream == Qnil)
+      return -1;
+    IodineCaller.call2(body, iodine_call_proc_id, 1, &stream);
+    handle->type = IODINE_HTTP_NONE;
+    return 0;
   }
   return -1;
 }

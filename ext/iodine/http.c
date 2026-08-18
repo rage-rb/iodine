@@ -91,6 +91,13 @@ static inline void remove_content_length(http_s *r) {
   fiobj_hash_delete2(r->private_data.out_headers, cl_hash);
 }
 
+static inline void remove_transfer_encoding(http_s *r) {
+  static uint64_t te_hash = 0;
+  if (!te_hash)
+    te_hash = fiobj_hash_string("transfer-encoding", 17);
+  fiobj_hash_delete2(r->private_data.out_headers, te_hash);
+}
+
 static inline void add_content_type(http_s *r) {
   static uint64_t ct_hash = 0;
   if (!ct_hash)
@@ -376,6 +383,64 @@ intptr_t http_uuid(http_s *h) {
   if (HTTP_INVALID_HANDLE(h))
     return -1;
   return ((http_fio_protocol_s *)h->private_data.flag)->uuid;
+}
+
+/**
+ * Marks the response as a streaming response: the connection's protocol will
+ * not auto-finalize it when the request callback returns, and the `http_s`
+ * handle remains valid until `http_streaming_end` completes the response.
+ */
+void http_streaming_start(http_s *h) {
+  if (HTTP_INVALID_HANDLE(h))
+    return;
+  remove_content_length(h);
+  remove_transfer_encoding(h);
+  ((http_vtable_s *)h->private_data.vtbl)->http_streaming_start(h);
+}
+
+/**
+ * Completes a streaming response: sends the terminating chunk via
+ * `http_finish` and resumes normal request handling on the connection.
+ *
+ * AFTER THIS FUNCTION IS CALLED, THE `http_s` OBJECT IS NO LONGER VALID.
+ */
+void http_streaming_end(http_s *h) {
+  if (HTTP_INVALID_HANDLE(h))
+    return;
+  ((http_vtable_s *)h->private_data.vtbl)->http_streaming_end(h);
+}
+
+/**
+ * Arms a one-shot wake when the outgoing queue drains or the connection closes.
+ * Re-arm after each blocked write.
+ */
+void http_streaming_arm_wake(http_s *h) {
+  if (HTTP_INVALID_HANDLE(h))
+    return;
+  ((http_vtable_s *)h->private_data.vtbl)->http_streaming_arm_wake(h);
+}
+
+/**
+ * Copies the current streaming response's NUL-terminated wake channel name to
+ * `dest`, which must hold at least `HTTP_WAKE_CHANNEL_MAX` bytes. Returns its
+ * length, or 0 if there's no active streaming response.
+ */
+size_t http_streaming_wake_channel(http_s *h, char dest[HTTP_WAKE_CHANNEL_MAX]) {
+  static const char prefix[] = "iodine:stream:";
+  if (HTTP_INVALID_HANDLE(h) || !dest)
+    return 0;
+
+  http_fio_protocol_s *p = (http_fio_protocol_s *)h->private_data.flag;
+  if (!p->stream_generation)
+    return 0;
+
+  memcpy(dest, prefix, sizeof(prefix) - 1);
+  size_t len = sizeof(prefix) - 1;
+  len += fio_ltoa(dest + len, (int64_t)p->uuid, 16);
+  dest[len++] = ':';
+  len += fio_ltoa(dest + len, (int64_t)p->stream_generation, 16);
+  dest[len] = 0;
+  return len;
 }
 
 /**
