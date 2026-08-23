@@ -1112,6 +1112,19 @@ intptr_t fio_socket(const char *address, const char *port, uint8_t is_server);
 intptr_t fio_accept(intptr_t srv_uuid);
 
 /**
+ * Returns the number of established connections currently parked in the
+ * kernel's accept queue(s) (sk_ack_backlog) of all iodine listening sockets.
+ *
+ * The query goes straight to the kernel via getsockopt(TCP_INFO).
+ *
+ * Returns the total accept queue length across all iodine listeners, or 0
+ * when there are no listeners.
+ */
+#if defined(__linux__)
+intptr_t fio_queued_connections(void);
+#endif /* linux only */
+
+/**
  * Returns 1 if the uuid refers to a valid and open, socket.
  *
  * Returns 0 if not.

@@ -5571,6 +5571,14 @@ The listening protocol (use the facil.io API to make a socket and attach it)
 typedef struct {
   fio_protocol_s pr;
   intptr_t uuid;
+#if defined(__linux__)
+/**
+* Listener node adding this listener into to fio_accept_queue_listeners,
+* so Iodine.queued_connections can find it's socket's fd and read its
+* kernel length accept-queue(AcceptQ):backlog where (backlog <= somaxconn) (TCP_INFO).
+*/
+  fio_ls_embd_s listener_node;
+#endif
   void *udata;
   void (*on_open)(intptr_t uuid, void *udata);
   void (*on_start)(intptr_t uuid, void *udata);
@@ -5582,8 +5590,20 @@ typedef struct {
   void *tls;
 } fio_listen_protocol_s;
 
+#if defined(__linux__)
+/* tracks iodine's listening sockets for the accept-queue backlog query.
+ * guarded against concurrent teardown (reactor thread, no GVL) */
+static fio_ls_embd_s fio_accept_queue_listeners = FIO_LS_INIT(fio_accept_queue_listeners);
+static fio_lock_i fio_accept_queue_lock = FIO_LOCK_INIT;
+#endif
+
 static void fio_listen_cleanup_task(void *pr_) {
   fio_listen_protocol_s *pr = pr_;
+#if defined(__linux__)
+  fio_lock(&fio_accept_queue_lock);
+  fio_ls_embd_remove(&pr->listener_node);
+  fio_unlock(&fio_accept_queue_lock);
+#endif
 #ifndef __MINGW32__
   if (pr->tls)
     fio_tls_destroy(pr->tls);
@@ -5733,6 +5753,12 @@ intptr_t fio_listen FIO_IGNORE_MACRO(struct fio_listen_args args) {
   if (port_len)
     memcpy(pr->port, args.port, port_len + 1);
 
+#if defined(__linux__)
+  fio_lock(&fio_accept_queue_lock);
+  fio_ls_embd_push(&fio_accept_queue_listeners, &pr->listener_node);
+  fio_unlock(&fio_accept_queue_lock);
+#endif
+
   if (fio_is_running()) {
     fio_attach(pr->uuid, &pr->pr);
   } else {
@@ -5752,6 +5778,51 @@ error:
   }
   return -1;
 }
+
+/* -------------------------------------------------------------------------
+ * Kernel accept-queue(AcceptQ) which is Queue length: backlog, where backlog <= somaxconn  
+ * "backlog are established connections waiting for accept()" = sk_ack_backlog.
+ * Returns the sum of the accept-queues of all iodine listening sockets, or 0.
+ * ---------------------------------------------------------------------- */
+#if defined(__linux__)
+intptr_t fio_queued_connections(void) {
+  intptr_t backlog = 0;
+
+  fio_lock(&fio_accept_queue_lock);
+  /**
+   * Walk every registered listener and sum its kernel accept-queue depth/length.
+   * The list always begins with a permanent head node (fio_accept_queue_listeners) 
+   * that works like a fixed bookmark: it holds no listener of its own, real nodes 
+   * are chained after it, and the last node links back to it, forming a circle 
+   * i.e a circular linked list also it's a doubly linked list.
+   *
+   * So the loop:
+   *   - starts at `.next`, i.e. the FIRST REAL node starting at the head
+   *     itself would be wrong, since it owns no listener and converting it
+   *     with FIO_LS_EMBD_OBJ would produce a bogus pointer;
+   *   - stops when it arrives back at the head, meaning every real node
+   *     has been visited;
+   *   - runs zero times on an empty list, because a lone head simply
+   *     points at itself.
+   */
+  for (fio_ls_embd_s *pos = fio_accept_queue_listeners.next; pos != &fio_accept_queue_listeners; pos = pos->next) {
+    fio_listen_protocol_s *pr = FIO_LS_EMBD_OBJ(fio_listen_protocol_s, listener_node, pos);
+
+    struct tcp_info info;
+    socklen_t tlen = sizeof(info);
+    int fd = fio_uuid2fd(pr->uuid);
+
+    if (getsockopt(fd, IPPROTO_TCP, TCP_INFO, &info, &tlen)) {
+      continue;
+    }
+
+    backlog += (intptr_t)info.tcpi_unacked;
+  }
+  fio_unlock(&fio_accept_queue_lock);
+
+  return backlog;
+}
+#endif
 
 /* *****************************************************************************
 Section Start Marker
