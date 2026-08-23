@@ -590,11 +590,23 @@ static inline int ruby2c_response_send(iodine_http_request_handle_s *handle,
       IodineCaller.call(body, close_method_id);
     return 0;
   } else if (rb_respond_to(body, iodine_call_proc_id)) {
-    // Rage owns producer scheduling. Iodine invokes the callable
-    VALUE stream = IodineRackStream.create(handle->h);
+    /* HEAD: no body (RFC 9110); skip the callable, respond headers-only. */
+    if (handle->h->method) {
+      fio_str_info_s method = fiobj_obj2cstr(handle->h->method);
+      if (method.len == 4 && !memcmp(method.data, "HEAD", 4)) {
+        if (rb_respond_to(body, close_method_id))
+          IodineCaller.call(body, close_method_id);
+        handle->type = IODINE_HTTP_EMPTY;
+        return 0;
+      }
+    }
+    // Rage owns producer scheduling. Iodine invokes the callable.
+    // volatile + clear below: a stale stack slot would pin a dropped stream.
+    volatile VALUE stream = IodineRackStream.create(handle->h);
     if (stream == Qnil)
       return -1;
-    IodineCaller.call2(body, iodine_call_proc_id, 1, &stream);
+    IodineCaller.call2(body, iodine_call_proc_id, 1, (VALUE *)&stream);
+    stream = Qnil;
     handle->type = IODINE_HTTP_NONE;
     return 0;
   }

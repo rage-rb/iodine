@@ -145,6 +145,28 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
     expect(consume_body(response)).to eq("")
   end
 
+  it 'suppresses the body and skips the callable on a HEAD request' do
+    head = http_client.head("http://localhost:#{server_port}/head-probe")
+    expect(head.status).to eq(200)
+    expect(head.headers.get('Transfer-Encoding')).to be_empty
+    expect(consume_body(head)).to eq("")
+
+    result = consume_body(http_get('/head-probe-result'))
+    expect(result).to eq('called=false')
+  end
+
+  it 'serves a plain request after a HEAD to a streaming endpoint on the same connection' do
+    http_client.persistent("http://localhost:#{server_port}") do |client|
+      head = client.head('/head-probe')
+      expect(head.status).to eq(200)
+      expect(consume_body(head)).to eq("")
+
+      followup = client.get('/each-body')
+      expect(followup.status).to eq(200)
+      expect(consume_body(followup)).to eq('each-body-ok')
+    end
+  end
+
   it 'serves a plain request after a streamed response on the same connection' do
     http_client.persistent("http://localhost:#{server_port}") do |client|
       streamed = client.get('/')
@@ -242,6 +264,30 @@ RSpec.describe 'HTTP response streaming', with_app: :response_streaming do
       expect(second.status).to eq(200)
       expect(consume_body(second)).to eq(expected_stream)
     end
+  end
+
+  it 'finishes a response whose stream was dropped without close once GC collects it' do
+    response = http_get('/gc-leak')
+    expect(response.status).to eq(200)
+
+    body_reader = Thread.new do
+      consume_body(response)
+    rescue HTTP::TimeoutError
+      :timed_out
+    end
+    
+    expect(consume_body(http_get('/te-write'))).to eq('hello')
+
+    finished = false
+    10.times do
+      consume_body(http_get('/gc-collect'))
+      break finished = true unless body_reader.join(0.2).nil?
+    end
+
+    expect(finished).to be(true)
+    expect(body_reader.value).to eq("x")
+  ensure
+    body_reader&.kill
   end
 
   it 'keeps streaming after the callable returns' do
