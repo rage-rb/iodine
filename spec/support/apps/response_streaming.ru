@@ -7,6 +7,7 @@ release_channel = "response-streaming-release"
 backpressure = nil
 backpressure_close = nil
 double_close = nil
+head_probe_called = nil
 
 run ->(env) do
   if env['PATH_INFO'] == '/stream-state'
@@ -82,6 +83,36 @@ run ->(env) do
 
   if env['PATH_INFO'] == '/oversized-result'
     next [200, {}, ["result=#{oversized_result}"]]
+  end
+
+  if env['PATH_INFO'] == '/head-probe'
+    head_probe_called = false
+
+    body = proc do |stream|
+      head_probe_called = true
+      stream.write("should-not-be-sent")
+      stream.close
+    end
+
+    next [200, {}, body]
+  end
+
+  if env['PATH_INFO'] == '/head-probe-result'
+    next [200, {}, ["called=#{head_probe_called}"]]
+  end
+
+  if env['PATH_INFO'] == '/gc-leak'
+    body = proc { |stream| stream.write("x") }
+    next [200, {}, body]
+  end
+
+  if env['PATH_INFO'] == '/gc-collect'
+    washer = nil
+    washer = ->(n) { n.zero? ? 0 : [0].sum { |_| washer.call(n - 1) } }
+    washer.call(512)
+    3.times { GC.start }
+    live = ObjectSpace.each_object(Iodine::Base::RackStream).count
+    next [200, {}, ["gc=done live=#{live}"]]
   end
 
   # Non-streaming response regressions.

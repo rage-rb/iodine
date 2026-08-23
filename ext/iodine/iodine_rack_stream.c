@@ -34,7 +34,6 @@ Core data / helpers
 
 static VALUE rRackStream;
 
-static ID ctx_var_id;   /* ivar holding the stream_ctx_t pointer */
 static ID iodine_new_func_id;
 
 /* write() return values (cached symbols) */
@@ -44,12 +43,45 @@ static VALUE SYM_disconnected;
 static VALUE SYM_would_block;
 static VALUE SYM_error;
 
-#define set_ctx(object, ctx)                                   \
-  rb_ivar_set((object), ctx_var_id, ULL2NUM((uintptr_t)(ctx)))
+/* GC fallback: finish the response of a stream dropped without `close`.
+ * Runs during sweep, so it must not touch any Ruby VALUE. */
+static void rack_stream_dfree(void *ptr) {
+  stream_ctx_t *ctx = ptr;
+  if (!ctx)
+    return;
+  if (!ctx->freed && fio_is_valid(ctx->uuid)) {
+    FIO_LOG_WARNING(
+        "(iodine) RackStream was garbage collected without `close`; "
+        "finishing the response.");
+    http_streaming_end(ctx->h);
+  }
+  free(ctx);
+}
+
+static size_t rack_stream_dsize(const void *ptr) {
+  return ptr ? sizeof(stream_ctx_t) : 0;
+}
+
+static const rb_data_type_t rack_stream_data_type = {
+    .wrap_struct_name = "IodineRackStream",
+    .function =
+        {
+            .dmark = NULL,
+            .dfree = rack_stream_dfree,
+            .dsize = rack_stream_dsize,
+        },
+    .data = NULL,
+    .flags = RUBY_TYPED_FREE_IMMEDIATELY,
+};
+
+static VALUE rack_stream_alloc(VALUE klass) {
+  return TypedData_Wrap_Struct(klass, &rack_stream_data_type, NULL);
+}
 
 inline static stream_ctx_t *get_ctx(VALUE obj) {
-  VALUE i = rb_ivar_get(obj, ctx_var_id);
-  return (stream_ctx_t *)NUM2ULL(i);
+  stream_ctx_t *ctx;
+  TypedData_Get_Struct(obj, stream_ctx_t, &rack_stream_data_type, ctx);
+  return ctx;
 }
 
 /* Frees the context exactly once and detaches it from the Ruby object. */
@@ -59,7 +91,7 @@ static void stream_teardown(VALUE stream) {
     return;
   ctx->freed = 1;
   ctx->state = IODINE_STREAM_CLOSED;
-  set_ctx(stream, NULL);
+  RTYPEDDATA_DATA(stream) = NULL;
   free(ctx);
 }
 
@@ -183,7 +215,7 @@ static VALUE new_rack_stream(http_s *h) {
   ctx->wake_channel_len = http_streaming_wake_channel(h, ctx->wake_channel);
 
   VALUE stream = rb_funcall2(rRackStream, iodine_new_func_id, 0, NULL);
-  set_ctx(stream, ctx);
+  RTYPEDDATA_DATA(stream) = ctx;
   return stream;
 }
 
@@ -193,8 +225,8 @@ Initialization
 
 static void init_rack_stream(void) {
   rRackStream = rb_define_class_under(IodineBaseModule, "RackStream", rb_cObject);
+  rb_define_alloc_func(rRackStream, rack_stream_alloc);
 
-  ctx_var_id = rb_intern("stream_ctx");
   iodine_new_func_id = rb_intern("new");
 
   SYM_ok = ID2SYM(rb_intern("ok"));
