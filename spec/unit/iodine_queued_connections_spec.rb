@@ -32,7 +32,7 @@ RSpec.describe Iodine do
       Iodine.on_state(:on_start) do
         t = Thread.new { 5.times.map { TCPSocket.new("127.0.0.1", port) } }
         socks = t.value
-        result = Iodine.queued_connections
+        Iodine.run { result = Iodine.queued_connections }
         socks.each(&:close)
         Iodine.run { Iodine.stop }
       end
@@ -50,7 +50,7 @@ RSpec.describe Iodine do
       Iodine.on_state(:on_start) do
         t = Thread.new { 5.times.map { TCPSocket.new("127.0.0.1", raw_port) } }
         socks = t.value
-        result = Iodine.queued_connections
+        Iodine.run { result = Iodine.queued_connections }
         socks.each(&:close)
         Iodine.run { Iodine.stop }
       end
@@ -69,7 +69,7 @@ RSpec.describe Iodine do
         t1 = Thread.new { 3.times.map { TCPSocket.new("127.0.0.1", port1) } }
         t2 = Thread.new { 2.times.map { TCPSocket.new("127.0.0.1", port2) } }
         s1, s2 = t1.value, t2.value
-        result = Iodine.queued_connections
+        Iodine.run { result = Iodine.queued_connections }
         s1.each(&:close)
         s2.each(&:close)
         Iodine.run { Iodine.stop }

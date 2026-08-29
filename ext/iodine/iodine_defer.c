@@ -426,7 +426,7 @@ static VALUE iodine_queued_connections(VALUE self) {
   intptr_t backlog = fio_queued_connections();
   return INT2NUM((long)backlog);
 #else
-  return INT2NUM(0);
+  return Qnil;
 #endif
   (void)self;
 }
