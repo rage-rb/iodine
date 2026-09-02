@@ -5823,20 +5823,20 @@ intptr_t fio_queued_connections(void) {
     socklen_t tlen = sizeof(info);
     int fd = fio_uuid2fd(pr->uuid);
 
+    fio_lock(&fd_data(fd).protocol_lock);
+
     /* Skip sockets that were closed or reused before we could query them.
      * Callers must run this after listeners are attached (e.g. from within
      * Iodine.run / a background thread), so the listener's protocol slot is
      * populated and the checks below are meaningful. */
     if (!uuid_is_valid(pr->uuid) || fd_data(fd).protocol != &pr->pr) {
+      fio_unlock(&fd_data(fd).protocol_lock);
       continue;
     }
 
-    fio_protocol_s *locked_pr = fio_protocol_try_lock(pr->uuid, FIO_PR_LOCK_STATE);
-    if (!locked_pr) {
-      continue;
-    }
     int ok = !getsockopt(fd, IPPROTO_TCP, TCP_INFO, &info, &tlen);
-    fio_protocol_unlock(locked_pr, FIO_PR_LOCK_STATE);
+
+    fio_unlock(&fd_data(fd).protocol_lock);
 
     if (!ok) {
       continue;
