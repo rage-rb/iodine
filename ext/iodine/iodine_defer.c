@@ -415,6 +415,28 @@ static void iodine_defer_on_finish(void *ignr) {
   iodine_join_io_thread();
 }
 
+
+/* *****************************************************************************
+Accept-queue(AcceptQ) backlog (Linux only)
+***************************************************************************** */
+
+/** 
+ * Iodine.accept_queue_backlog
+ *
+ * Returns the total number of established connections currently parked in
+ * the kernel's accept queue(s) (sk_ack_backlog) of all iodine listening
+ * sockets. Returns 0 when there are no listeners (or on non-Linux).
+ */
+static VALUE iodine_queued_connections(VALUE self) {
+#if defined(__linux__)
+  intptr_t backlog = fio_queued_connections();
+  return INT2NUM((long)backlog);
+#else
+  return Qnil;
+#endif
+  (void)self;
+}
+
 /* *****************************************************************************
 Add defer API to Iodine
 ***************************************************************************** */
@@ -436,6 +458,8 @@ void iodine_defer_initialize(void) {
                             0);
   rb_define_module_function(IodineModule, "stopping?", iodine_is_stop_requested,
                             0);
+
+  rb_define_module_function(IodineModule, "queued_connections", iodine_queued_connections, 0);
 
   STATE_PRE_START = rb_intern("pre_start");
   STATE_BEFORE_FORK = rb_intern("before_fork");
