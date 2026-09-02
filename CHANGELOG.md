@@ -6,6 +6,16 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.5.0 (2026-07-06)
+
+**Update**: Update `pre_start` callbacks to fail the server launch in case of errors
+
+**Update**: Update media types in the MIME table
+
+**Update**: Ensure users can override headers when serving files
+
+**Update**: Support `x-sendfile-root` headers
+
 #### Change log v.5.4.0 (2026-06-08)
 
 **Update**: Optimize `fio_run_every` timers
