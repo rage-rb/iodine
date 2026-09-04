@@ -1,6 +1,8 @@
 #include "iodine.h"
 #include "iodine_store.h"
 #include "ruby.h"
+#include "ruby/fiber/scheduler.h"
+#include "ruby/io/buffer.h"
 
 #include <errno.h>
 #include <stddef.h>
@@ -10,7 +12,7 @@
 
 #include "fio.h"
 
-#define IO_MAX_READ 8192
+#define IO_MAX_READ 65536
 
 static ID call_id;
 static uint8_t ATTACH_ON_READ_READY_CALLBACK;
@@ -151,51 +153,104 @@ static VALUE iodine_scheduler_attach(VALUE self, VALUE r_fd, VALUE r_waittype, V
   (void)self;
 }
 
-static VALUE iodine_scheduler_write(VALUE self, VALUE r_fd, VALUE r_buffer, VALUE r_length, VALUE r_offset) {
+static VALUE iodine_scheduler_write_async(VALUE self, VALUE r_fd, VALUE r_buffer, VALUE r_length, VALUE r_offset) {
   Check_Type(r_fd, T_FIXNUM);
   int fd = FIX2INT(r_fd);
 
-  Check_Type(r_buffer, T_STRING);
-  char *buffer = RSTRING_PTR(r_buffer);
+  const void *buffer;
+  size_t buffer_length;
+  rb_io_buffer_get_bytes_for_reading(r_buffer, &buffer, &buffer_length);
 
   Check_Type(r_length, T_FIXNUM);
-  int length = FIX2INT(r_length);
+  size_t length = NUM2SIZET(r_length);
 
   Check_Type(r_offset, T_FIXNUM);
-  int offset = FIX2INT(r_offset);
+  size_t offset = NUM2SIZET(r_offset);
+
+  if (offset > buffer_length || length > buffer_length - offset) {
+    return rb_fiber_scheduler_io_result(-1, EINVAL);
+  }
+  if (!length) {
+    return r_length;
+  }
 
   void *cpy = fio_malloc(length);
-  memcpy(cpy, buffer, length);
-  fio_write2(fio_fd2uuid(fd), .data.buffer = cpy, .length = length, .offset = offset, .after.dealloc = fio_free);
+  memcpy(cpy, (const char *)buffer + offset, length);
+  fio_write2(fio_fd2uuid(fd), .data.buffer = cpy, .length = length, .after.dealloc = fio_free);
 
   return r_length;
 
   (void)self;
 }
 
-static VALUE iodine_scheduler_read(VALUE self, VALUE r_fd, VALUE r_length, VALUE r_offset) {
+static VALUE iodine_scheduler_write(VALUE self, VALUE r_fd, VALUE r_buffer, VALUE r_length, VALUE r_offset) {
   Check_Type(r_fd, T_FIXNUM);
   int fd = FIX2INT(r_fd);
 
+  const void *buffer;
+  size_t buffer_length;
+  rb_io_buffer_get_bytes_for_reading(r_buffer, &buffer, &buffer_length);
+
   Check_Type(r_length, T_FIXNUM);
-  int length = FIX2INT(r_length);
+  size_t length = NUM2SIZET(r_length);
 
-  if (length == 0) {
-    length = IO_MAX_READ;
+  Check_Type(r_offset, T_FIXNUM);
+  size_t offset = NUM2SIZET(r_offset);
+
+  if (offset > buffer_length || length > buffer_length - offset) {
+    return rb_fiber_scheduler_io_result(-1, EINVAL);
+  }
+  if (!length) {
+    return rb_fiber_scheduler_io_result(0, 0);
   }
 
-  intptr_t uuid = fio_fd2uuid(fd);
-  char buffer[length];
-
-  ssize_t len = fio_read_unsafe(uuid, &buffer, length);
-  if (len == -1) {
-    return Qnil;
-  }
-
-  return rb_str_new(buffer, len);
+  ssize_t result = fio_write_once(fio_fd2uuid(fd), (const char *)buffer + offset, length);
+  int error = result < 0 ? errno : 0;
+  return rb_fiber_scheduler_io_result(result, error);
 
   (void)self;
-  (void)r_offset;
+}
+
+static VALUE iodine_scheduler_read(VALUE self, VALUE r_fd, VALUE r_buffer, VALUE r_length, VALUE r_offset) {
+  Check_Type(r_fd, T_FIXNUM);
+  int fd = FIX2INT(r_fd);
+
+  void *buffer;
+  size_t buffer_length;
+  rb_io_buffer_get_bytes_for_writing(r_buffer, &buffer, &buffer_length);
+
+  Check_Type(r_length, T_FIXNUM);
+  size_t length = NUM2SIZET(r_length);
+
+  Check_Type(r_offset, T_FIXNUM);
+  size_t offset = NUM2SIZET(r_offset);
+
+  if (offset > buffer_length || length > buffer_length - offset) {
+    return rb_fiber_scheduler_io_result(-1, EINVAL);
+  }
+
+  #if RUBY_FIBER_SCHEDULER_VERSION >= 4
+    if (length > IO_MAX_READ) {
+      length = IO_MAX_READ;
+    }
+  #else
+    if (length == 0) {
+      length = buffer_length - offset;
+      if (length > IO_MAX_READ) {
+        length = IO_MAX_READ;
+      }
+    }
+  #endif
+
+  if (!length) {
+    return rb_fiber_scheduler_io_result(0, 0);
+  }
+
+  ssize_t result = fio_read_once(fio_fd2uuid(fd), (char *)buffer + offset, length);
+  int error = result < 0 ? errno : 0;
+  return rb_fiber_scheduler_io_result(result, error);
+
+  (void)self;
 }
 
 static VALUE iodine_scheduler_close(VALUE self) {
@@ -219,8 +274,9 @@ void iodine_scheduler_initialize(void) {
   VALUE SchedulerModule = rb_define_module_under(IodineModule, "Scheduler");
 
   rb_define_module_function(SchedulerModule, "attach", iodine_scheduler_attach, 3);
+  rb_define_module_function(SchedulerModule, "write_async", iodine_scheduler_write_async, 4);
   rb_define_module_function(SchedulerModule, "write", iodine_scheduler_write, 4);
-  rb_define_module_function(SchedulerModule, "read", iodine_scheduler_read, 3);
+  rb_define_module_function(SchedulerModule, "read", iodine_scheduler_read, 4);
   rb_define_module_function(SchedulerModule, "close", iodine_scheduler_close, 0);
 
   VALUE cIO = rb_const_get(rb_cObject, rb_intern2("IO", 2));
