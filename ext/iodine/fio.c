@@ -5586,7 +5586,7 @@ typedef struct {
 #if defined(__linux__)
 /**
 * Listener node adding this listener into to fio_accept_queue_listeners,
-* so Iodine.queued_connections can find it's socket's fd and read its
+* so Iodine::Perf.queued_connections can find its socket's fd and read its
 * kernel length accept-queue(AcceptQ):backlog where (backlog <= somaxconn) (TCP_INFO).
 */
   fio_ls_embd_s listener_node;
