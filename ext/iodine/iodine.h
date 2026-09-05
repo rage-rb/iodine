@@ -42,6 +42,7 @@ typedef struct {
 #include "iodine_http.h"
 #include "iodine_json.h"
 #include "iodine_mustache.h"
+#include "iodine_perf.h"
 #include "iodine_pubsub.h"
 #include "iodine_rack_io.h"
 #include "iodine_store.h"

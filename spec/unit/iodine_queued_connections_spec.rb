@@ -1,8 +1,8 @@
 require "socket"
 
-RSpec.describe Iodine do
+RSpec.describe Iodine::Perf do
   describe '.queued_connections' do
-    before(:all) do
+    def linux_only
       skip "Linux only (TCP_INFO)" unless RUBY_PLATFORM.include?("linux")
     end
 
@@ -14,25 +14,33 @@ RSpec.describe Iodine do
     end
 
     it 'returns an Integer' do
-      expect(Iodine.queued_connections).to be_a(Integer)
+      linux_only
+      expect(Iodine::Perf.queued_connections).to be_a(Integer)
     end
 
     it 'accepts no arguments' do
-      expect { Iodine.queued_connections(3000) }.to raise_error(ArgumentError)
+      expect { Iodine::Perf.queued_connections(3000) }.to raise_error(ArgumentError)
+    end
+
+    it 'returns nil on unsupported platforms' do
+      skip "Supported on Linux" if RUBY_PLATFORM.include?("linux")
+      expect(Iodine::Perf.queued_connections).to be_nil
     end
 
     it 'returns 0 when no iodine listeners exist' do
-      expect(Iodine.queued_connections).to eq(0)
+      linux_only
+      expect(Iodine::Perf.queued_connections).to eq(0)
     end
 
     it 'reports the accept queue of its own listeners' do
+      linux_only
       port = free_port
       result = nil
       Iodine.workers = 1
       Iodine.on_state(:on_start) do
         t = Thread.new { 5.times.map { TCPSocket.new("127.0.0.1", port) } }
         socks = t.value
-        Iodine.run { result = Iodine.queued_connections }
+        Iodine.run { result = Iodine::Perf.queued_connections }
         socks.each(&:close)
         Iodine.run { Iodine.stop }
       end
@@ -42,6 +50,7 @@ RSpec.describe Iodine do
     end
 
     it 'counts only iodine-owned listeners, not raw sockets' do
+      linux_only
       raw_port = free_port
       iodine_port = free_port
       raw = TCPServer.new("127.0.0.1", raw_port)
@@ -50,7 +59,7 @@ RSpec.describe Iodine do
       Iodine.on_state(:on_start) do
         t = Thread.new { 5.times.map { TCPSocket.new("127.0.0.1", raw_port) } }
         socks = t.value
-        Iodine.run { result = Iodine.queued_connections }
+        Iodine.run { result = Iodine::Perf.queued_connections }
         socks.each(&:close)
         Iodine.run { Iodine.stop }
       end
@@ -61,6 +70,7 @@ RSpec.describe Iodine do
     end
 
     it 'sums the queues of all iodine listeners' do
+      linux_only
       port1 = free_port
       port2 = free_port
       result = nil
@@ -69,7 +79,7 @@ RSpec.describe Iodine do
         t1 = Thread.new { 3.times.map { TCPSocket.new("127.0.0.1", port1) } }
         t2 = Thread.new { 2.times.map { TCPSocket.new("127.0.0.1", port2) } }
         s1, s2 = t1.value, t2.value
-        Iodine.run { result = Iodine.queued_connections }
+        Iodine.run { result = Iodine::Perf.queued_connections }
         s1.each(&:close)
         s2.each(&:close)
         Iodine.run { Iodine.stop }
