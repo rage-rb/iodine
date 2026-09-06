@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.6.0 (2026-09-06)
+
+**Update**: TCP Socket Listen: Accept Queue
+
 #### Change log v.5.5.0 (2026-07-06)
 
 **Update**: Update `pre_start` callbacks to fail the server launch in case of errors
