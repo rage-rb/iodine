@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.6.0.0 (2026-09-06)
+
+**Update**: Update scheduler `read`/`write` hooks
+
 #### Change log v.5.6.0 (2026-09-06)
 
 **Update**: TCP Socket Listen: Accept Queue
