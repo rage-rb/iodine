@@ -3687,12 +3687,12 @@ retry_int:
 }
 
 /**
- * This is a complete copy of `fio_read` except that it doesn't attempt to force close the
- * socker on error.
+ * Performs a single read operation using the connection's read hook.
  *
- * The method is currently used by the fiber scheduler.
+ * The return value and errno match the underlying read operation. The socket
+ * isn't closed on error.
  */
-ssize_t fio_read_unsafe(intptr_t uuid, void *buffer, size_t count) {
+ssize_t fio_read_once(intptr_t uuid, void *buffer, size_t count) {
   if (!uuid_is_valid(uuid) || !uuid_data(uuid).open) {
     errno = EBADF;
     return -1;
@@ -3704,22 +3704,36 @@ ssize_t fio_read_unsafe(intptr_t uuid, void *buffer, size_t count) {
       uuid_data(uuid).rw_hooks->read;
   void *udata = uuid_data(uuid).rw_udata;
   fio_unlock(&uuid_data(uuid).sock_lock);
-  int old_errno = errno;
-  ssize_t ret;
-retry_int:
-  ret = rw_read(uuid, udata, buffer, count);
+  ssize_t ret = rw_read(uuid, udata, buffer, count);
   if (ret > 0) {
     fio_touch(uuid);
-    return ret;
   }
-  if (ret < 0 && errno == EINTR)
-    goto retry_int;
-  if (ret < 0 &&
-      (errno == EWOULDBLOCK || errno == EAGAIN || errno == ENOTCONN)) {
-    errno = old_errno;
+  return ret;
+}
+
+/**
+ * Performs a single write operation using the connection's write hook.
+ *
+ * The return value and errno match the underlying write operation. The socket
+ * isn't closed on error and no data is queued for the reactor.
+ */
+ssize_t fio_write_once(intptr_t uuid, const void *buffer, size_t count) {
+  if (!uuid_is_valid(uuid) || !uuid_data(uuid).open) {
+    errno = EBADF;
+    return -1;
+  }
+  if (count == 0)
     return 0;
+  fio_lock(&uuid_data(uuid).sock_lock);
+  ssize_t (*rw_write)(intptr_t, void *, const void *, size_t) =
+      uuid_data(uuid).rw_hooks->write;
+  void *udata = uuid_data(uuid).rw_udata;
+  fio_unlock(&uuid_data(uuid).sock_lock);
+  ssize_t ret = rw_write(uuid, udata, buffer, count);
+  if (ret > 0) {
+    fio_touch(uuid);
   }
-  return -1;
+  return ret;
 }
 
 /**

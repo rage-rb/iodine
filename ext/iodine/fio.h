@@ -1198,12 +1198,20 @@ size_t fio_local_addr(char *dest, size_t limit);
 ssize_t fio_read(intptr_t uuid, void *buffer, size_t count);
 
 /**
- * This is a complete copy of `fio_read` except that it doesn't attempt to force close the
- * socker on error.
+ * Performs a single read operation using the connection's read hook.
  *
- * The method is currently used by the fiber scheduler.
+ * The return value and errno match the underlying read operation. The socket
+ * isn't closed on error.
  */
-ssize_t fio_read_unsafe(intptr_t uuid, void *buffer, size_t count);
+ssize_t fio_read_once(intptr_t uuid, void *buffer, size_t count);
+
+/**
+ * Performs a single write operation using the connection's write hook.
+ *
+ * The return value and errno match the underlying write operation. The socket
+ * isn't closed on error and no data is queued for the reactor.
+ */
+ssize_t fio_write_once(intptr_t uuid, const void *buffer, size_t count);
 
 /** The following structure is used for `fio_write2_fn` function arguments. */
 typedef struct {
