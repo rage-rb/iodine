@@ -528,11 +528,11 @@ RSpec.describe Iodine::Rack::Utils do
       end
     end
 
-    context "with encoded plain params" do
+    context "with a query encoded as a single component" do
       let(:q) { "name%3Dross%26occupation%3Dpaleontologist" }
 
-      it "works correctly" do
-        expect(subject).to eq({ name: "ross", occupation: "paleontologist" })
+      it "treats the query as one key" do
+        expect(subject).to eq({ "name=ross&occupation=paleontologist": nil })
       end
     end
 
@@ -545,10 +545,87 @@ RSpec.describe Iodine::Rack::Utils do
     end
 
     context "encoded complex params" do
-      let(:q) { "users%5B%5D%5Bdata%5D%5Bid%5D%3D11%26users%5B%5D%5Bdata%5D%5Bname%5D%3Dross%26users%5B%5D%5Bdata%5D%5Bid%5D%3D22%26users%5B%5D%5Bdata%5D%5Bname%5D%3Dchandler" }
+      let(:q) { "users%5B%5D%5Bdata%5D%5Bid%5D=11&users%5B%5D%5Bdata%5D%5Bname%5D=ross&users%5B%5D%5Bdata%5D%5Bid%5D=22&users%5B%5D%5Bdata%5D%5Bname%5D=chandler" }
 
       it "works correctly" do
         expect(subject).to eq({ users: [{ data: { id: "11", name: "ross" } }, { data: { id: "22", name: "chandler" } }] })
+      end
+    end
+
+    context "encoded ampersands" do
+      let(:q) { "ross%5Bfriends%5D=chandler+%26+chandlers+mom" }
+
+      it "works correctly" do
+        expect(subject).to eq({ ross: { friends: "chandler & chandlers mom" } })
+      end
+    end
+
+    context "with encoded keys" do
+      let(:q) { "first+name=ross&users%5B%5D%5Bname%5D=chandler" }
+
+      it "decodes spaces and nesting in keys" do
+        expect(subject).to eq({ "first name": "ross", users: [{ name: "chandler" }] })
+      end
+    end
+
+    context "with encoded values" do
+      let(:q) { "value=a%2Bb+%2526+%25+%26+%3D" }
+
+      it "decodes each component exactly once" do
+        expect(subject).to eq({ value: "a+b %26 % & =" })
+      end
+    end
+
+    context "with a mutable input string" do
+      let(:q) { "name=ross%26chandler".dup }
+
+      it "does not modify the input" do
+        expect { subject }.not_to change { q.dup }
+      end
+    end
+
+    context "with valueless nested params followed by another param" do
+      let(:q) { "names[]&users[name]&active" }
+
+      it "keeps each parameter separate" do
+        expect(subject).to eq({ names: [""], users: { name: "" }, active: nil })
+      end
+    end
+
+    context "with encoded nested keys" do
+      let(:q) { "users[][data][id]=11&users[][data][first%26name]=ross&users[][data][last%3Dname]=geller" }
+
+      it "groups distinct keys in the same array element" do
+        expect(subject).to eq({ users: [
+          { data: { id: "11", "first&name".to_sym => "ross", "last=name".to_sym => "geller" } }
+        ]})
+      end
+
+      context "when encoded key repeats" do
+        let(:q) { "#{super()}&users[][data][id]=22&users[][data][first%26name]=chandler&users[][data][last%3Dname]=bing" }
+
+        it "starts a new array element" do
+          expect(subject).to eq({ users: [
+            { data: { id: "11", "first&name".to_sym => "ross", "last=name".to_sym => "geller" } },
+            { data: { id: "22", "first&name".to_sym => "chandler", "last=name".to_sym => "bing" } }
+          ]})
+        end
+      end
+    end
+
+    context "with malformed encoding in a key" do
+      let(:q) { "name%GG=ross" }
+
+      it "raises a decoding error" do
+        expect { subject }.to raise_error(RuntimeError, /Malformed URL string/)
+      end
+    end
+
+    context "with malformed encoding in a value" do
+      let(:q) { "name=ross%2" }
+
+      it "raises a decoding error" do
+        expect { subject }.to raise_error(RuntimeError, /Malformed URL string/)
       end
     end
   end
@@ -649,6 +726,42 @@ RSpec.describe Iodine::Rack::Utils do
 
         expect(response.status.to_i).to eq(200)
         expect(response.parse["parameter"]).to eq(string)
+      end
+    end
+
+    context "with delimiters in nested multipart keys" do
+      let(:file) { Tempfile.new }
+
+      context "with &" do
+        it "groups distinct keys in the same array element" do
+          response = http_post("/", form: {
+            file: HTTP::FormData::File.new(file.path),
+            "users[][data][id]" => "11",
+            "users[][data][first&name]" => "ross",
+            "users[][data][last&name]" => "geller"
+          })
+
+          expect(response.status.to_i).to eq(200)
+          expect(response.parse["users"]).to eq([
+            { "data" => { "id" => "11", "first&name" => "ross", "last&name" => "geller" } }
+          ])
+        end
+      end
+
+      context "with =" do
+        it "groups distinct keys in the same array element" do
+          response = http_post("/", form: {
+            file: HTTP::FormData::File.new(file.path),
+            "users[][data][id]" => "11",
+            "users[][data][first=name]" => "ross",
+            "users[][data][last=name]" => "geller"
+          })
+
+          expect(response.status.to_i).to eq(200)
+          expect(response.parse["users"]).to eq([
+            { "data" => { "id" => "11", "first=name" => "ross", "last=name" => "geller" } }
+          ])
+        end
       end
     end
   end
