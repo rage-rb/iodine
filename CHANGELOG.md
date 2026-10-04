@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.6.1.0 (2026-10-04)
+
+**Update**: Refactor parameters parsing
+
 #### Change log v.6.0.0 (2026-09-06)
 
 **Update**: Update scheduler `read`/`write` hooks
