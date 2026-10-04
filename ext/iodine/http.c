@@ -1842,8 +1842,8 @@ typedef struct {
 
 #define http_mime_parser2fio(parser) ((http_fio_mime_s *)(parser))
 
-/** Parse a parameter key and add it to the `params` hash. Check `parse_nested_query_internal` for reference. */
-static void add_to_params(VALUE params, char *key, size_t key_len, VALUE value) {
+/** Parse a decoded parameter key and add it to the `params` hash. */
+void http_add_to_params(VALUE params, char *key, size_t key_len, VALUE value) {
   char *pos = NULL;
   if (key_len > 1) {
     pos = memchr(key + 1, '[', key_len - 1);
@@ -1925,7 +1925,7 @@ static void add_to_params(VALUE params, char *key, size_t key_len, VALUE value) 
           if (RB_TYPE_P(nested_val, T_HASH)) {
             char *n_pos_start = k_pos + 1, *n_pos_end = k_pos + 1;
 
-            while (nested_val != Qnil && *n_pos_start == '[' && *(n_pos_start + 1) != ']' && *n_pos_end != '&' && *n_pos_end != '=' && n_pos_end < end) {
+            while (nested_val != Qnil && n_pos_end < end && *n_pos_start == '[' && *(n_pos_start + 1) != ']') {
               n_pos_end++;
 
               if (*n_pos_end == ']') {
@@ -2011,7 +2011,7 @@ static void http_mime_parser_on_data(http_mime_parser_s *parser, void *name,
   // for regular values - just add them to params
   if (!filename_len) {
     VALUE r_value = rb_enc_str_new(value, value_len, IodineBinaryEncoding);
-    add_to_params(http_mime_parser2fio(parser)->params, name, name_len, r_value);
+    http_add_to_params(http_mime_parser2fio(parser)->params, name, name_len, r_value);
     return;
   }
 
@@ -2024,7 +2024,7 @@ static void http_mime_parser_on_data(http_mime_parser_s *parser, void *name,
   close(file);
 
   VALUE r_value = build_file_value(r_tempfile, filename, filename_len, mimetype, mimetype_len);
-  add_to_params(http_mime_parser2fio(parser)->params, name, name_len, r_value);
+  http_add_to_params(http_mime_parser2fio(parser)->params, name, name_len, r_value);
 }
 
 /** Called when the data didn't fit in the buffer. Data will be streamed. */
@@ -2073,7 +2073,7 @@ static void http_mime_parser_on_partial_end(http_mime_parser_s *parser) {
 
   // for a file - add to params and close the fd
   if (fio_parser->partial_fd) {
-    add_to_params(fio_parser->params, RSTRING_PTR(fio_parser->partial_name), RSTRING_LEN(fio_parser->partial_name), fio_parser->partial_tempfile);
+    http_add_to_params(fio_parser->params, RSTRING_PTR(fio_parser->partial_name), RSTRING_LEN(fio_parser->partial_name), fio_parser->partial_tempfile);
     close(fio_parser->partial_fd);
 
     fio_parser->partial_name = Qnil;
@@ -2086,7 +2086,7 @@ static void http_mime_parser_on_partial_end(http_mime_parser_s *parser) {
   FIOBJ slice = fiobj_data_slice(fio_parser->h->body, fio_parser->partial_offset, fio_parser->partial_length);
   fio_str_info_s s_slice = fiobj_obj2cstr(slice);
   VALUE r_value = rb_enc_str_new(s_slice.data, s_slice.len, IodineBinaryEncoding);
-  add_to_params(fio_parser->params, RSTRING_PTR(fio_parser->partial_name), RSTRING_LEN(fio_parser->partial_name), r_value);
+  http_add_to_params(fio_parser->params, RSTRING_PTR(fio_parser->partial_name), RSTRING_LEN(fio_parser->partial_name), r_value);
 
   fio_parser->partial_name = Qnil;
   fio_parser->partial_length = 0;

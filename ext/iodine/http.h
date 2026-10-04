@@ -781,6 +781,9 @@ HTTP GET and POST parsing helpers
  */
 VALUE http_parse_multipart(http_s *h, char *content_type, size_t content_type_len);
 
+/** Adds a decoded parameter key and Ruby value to a nested parameters hash. */
+void http_add_to_params(VALUE params, char *key, size_t key_len, VALUE value);
+
 /**
  * Parses the query part of an HTTP request/response. Uses `http_add2hash`.
  *
