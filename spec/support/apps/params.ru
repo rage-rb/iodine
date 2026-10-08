@@ -11,6 +11,9 @@ run ->(env) do
   file_key, file = params.find { |_, v| v.is_a?(Rage::UploadedFile) }
   raise "incorrect file class" if file.file.class != File
   params["#{file_key}_digest"] = Digest::MD5.hexdigest(file.file.read)
+  params["__encodings__"] = params.each_with_object({}) do |(key, value), encodings|
+    encodings[key] = value.encoding.name if value.is_a?(String)
+  end
 
 rescue => e
   [500, {}, [e.message]]

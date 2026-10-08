@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.5.8.0 (2026-10-09)
+
+**Update**: Encode parameters as UTF-8
+
 #### Change log v.5.7.0 (2026-10-04)
 
 **Update**: Refactor parameters parsing
