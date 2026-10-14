@@ -6741,8 +6741,19 @@ error:
 void fio_unsubscribe(subscription_s *s) {
   if (!s)
     return;
-  if (fio_trylock(&s->unsubscribed))
+  if (fio_trylock(&s->unsubscribed)) {
+    /* Already marked. Still unlink if linked so AT_EXIT teardown loops
+     * (fio_cluster_at_exit) cannot hang forever when a half-torn
+     * subscription remains on the channel list. fio_ls_embd_remove is
+     * idempotent when the node is already detached. See #21. */
+    channel_s *ch = s->parent;
+    if (ch) {
+      fio_lock(&ch->lock);
+      fio_ls_embd_remove(&s->node);
+      fio_unlock(&ch->lock);
+    }
     goto finish;
+  }
   fio_lock(&s->lock);
   channel_s *ch = s->parent;
   uint8_t removed = 0;
@@ -7676,6 +7687,8 @@ static void fio_cluster_at_exit(void *ignore) {
     while (fio_ls_embd_any(&ch->subscriptions)) {
       subscription_s *sub =
           FIO_LS_EMBD_OBJ(subscription_s, node, ch->subscriptions.next);
+      /* Guarantee progress even if unsubscribe early-returns. */
+      fio_ls_embd_remove(&sub->node);
       fio_unsubscribe(sub);
     }
     fio_ch_set_pop(&fio_postoffice.patterns.channels);
@@ -7686,6 +7699,8 @@ static void fio_cluster_at_exit(void *ignore) {
     while (fio_ls_embd_any(&ch->subscriptions)) {
       subscription_s *sub =
           FIO_LS_EMBD_OBJ(subscription_s, node, ch->subscriptions.next);
+      /* Guarantee progress even if unsubscribe early-returns. */
+      fio_ls_embd_remove(&sub->node);
       fio_unsubscribe(sub);
     }
     fio_ch_set_pop(&fio_postoffice.pubsub.channels);
@@ -7696,6 +7711,8 @@ static void fio_cluster_at_exit(void *ignore) {
     while (fio_ls_embd_any(&ch->subscriptions)) {
       subscription_s *sub =
           FIO_LS_EMBD_OBJ(subscription_s, node, ch->subscriptions.next);
+      /* Guarantee progress even if unsubscribe early-returns. */
+      fio_ls_embd_remove(&sub->node);
       fio_unsubscribe(sub);
     }
     fio_ch_set_pop(&fio_postoffice.filters.channels);
@@ -12106,6 +12123,30 @@ FIO_FUNC void fio_pubsub_test(void) {
   ++expect;
   fio_defer_perform();
   FIO_ASSERT(counter == expect, "unsubscribe wasn't called for named channel!");
+
+  /* Regression #21: marked-unsubscribed but still-linked must unlink. */
+  s = fio_subscribe(.channel = {0, 9, "hang-test"}, .udata1 = &counter,
+                    .on_message = fio_pubsub_test_on_message,
+                    .on_unsubscribe = fio_pubsub_test_on_unsubscribe);
+  FIO_ASSERT(s, "fio_subscribe FAILED for hang-test channel.");
+  {
+    channel_s *ch = s->parent;
+    fio_channel_dup(ch); /* keep channel alive across subscription free */
+    FIO_ASSERT(fio_ls_embd_any(&ch->subscriptions),
+               "hang-test subscription should be linked");
+    /* Half-torn state: marked unsubscribed, node still on the list. */
+    fio_trylock(&s->unsubscribed);
+    FIO_ASSERT(fio_ls_embd_any(&ch->subscriptions),
+               "hang-test should remain linked after marking unsubscribed");
+    fio_unsubscribe(s);
+    ++expect;
+    FIO_ASSERT(fio_ls_embd_is_empty(&ch->subscriptions),
+               "early-return unsubscribe must unlink (#21)");
+    fio_channel_free(ch);
+  }
+  fio_defer_perform();
+  FIO_ASSERT(counter == expect, "unsubscribe callback missing for hang-test!");
+
   fio_data->is_worker = 0;
   fio_data->active = 0;
   fio_data->workers = 0;
