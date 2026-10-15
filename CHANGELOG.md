@@ -8,7 +8,7 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 #### Change log v.6.2.0
 
-**Fix**: Prevent process hang on exit when pub/sub teardown hits an already-marked subscription that is still linked (`fio_cluster_at_exit` now performs a bounded best-effort cleanup instead of calling `fio_unsubscribe`). See #21.
+**Fix**: Prevent process hang on exit caused by a use-after-free in pub/sub teardown (`fio_cluster_at_exit` read a channel freed by `fio_unsubscribe` of its last subscription; it now performs a bounded best-effort cleanup instead). See #21.
 
 #### Change log v.6.1.0 (2026-10-04)
 

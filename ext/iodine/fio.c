@@ -7658,8 +7658,8 @@ static inline void fio_cluster_inform_root_about_channel(channel_s *ch,
 /* *****************************************************************************
  * Initialization
  **************************************************************************** */
-/* best-effort teardown: unlinks and frees without fio_unsubscribe, so
- * subscriptions left marked-but-linked can't stall the loop (#21) */
+/* best-effort teardown without fio_unsubscribe: it may free `ch` (and remove
+ * it from the set) while this loop still uses it (#21) */
 FIO_FUNC void fio_pubsub_at_exit_clear(fio_ch_set_s *channels) {
   while (fio_ch_set_count(channels)) {
     channel_s *ch = fio_ch_set_last(channels);
@@ -12097,8 +12097,11 @@ FIO_FUNC void fio_pubsub_test(void) {
   fio_defer_perform();
   FIO_ASSERT(counter == expect, "unsubscribe wasn't called for named channel!");
 
-  /* Regression #21: at-exit cleanup must not hang on a subscription that is
-   * marked unsubscribed but still linked. */
+  /* Regression #21: at-exit cleanup must terminate and empty the set, even
+   * with several subscriptions per channel or an already-marked one. */
+  fio_subscribe(.channel = {0, 9, "hang-test"}, .udata1 = &counter,
+                .on_message = fio_pubsub_test_on_message,
+                .on_unsubscribe = fio_pubsub_test_on_unsubscribe);
   s = fio_subscribe(.channel = {0, 9, "hang-test"}, .udata1 = &counter,
                     .on_message = fio_pubsub_test_on_message,
                     .on_unsubscribe = fio_pubsub_test_on_unsubscribe);
