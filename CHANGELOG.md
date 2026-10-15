@@ -8,7 +8,7 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 #### Change log v.6.2.0
 
-**Fix**: Prevent process hang on exit when pub/sub teardown hits an already-marked subscription that is still linked (`fio_unsubscribe` early-return now unlinks; `fio_cluster_at_exit` force-removes list heads). See #21.
+**Fix**: Prevent process hang on exit when pub/sub teardown hits an already-marked subscription that is still linked (`fio_cluster_at_exit` now performs a bounded best-effort cleanup instead of calling `fio_unsubscribe`). See #21.
 
 #### Change log v.6.1.0 (2026-10-04)
 
