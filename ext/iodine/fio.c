@@ -7644,6 +7644,25 @@ static inline void fio_cluster_inform_root_about_channel(channel_s *ch,
 /* *****************************************************************************
  * Initialization
  **************************************************************************** */
+/* best-effort teardown without fio_unsubscribe: it may free `ch` (and remove
+ * it from the set) while this loop still uses it (#21) */
+FIO_FUNC void fio_pubsub_at_exit_clear(fio_ch_set_s *channels) {
+  while (fio_ch_set_count(channels)) {
+    channel_s *ch = fio_ch_set_last(channels);
+    while (fio_ls_embd_any(&ch->subscriptions)) {
+      subscription_s *sub =
+          FIO_LS_EMBD_OBJ(subscription_s, node, ch->subscriptions.next);
+      fio_ls_embd_remove(&sub->node);
+      sub->unsubscribed = 1;
+      sub->on_message = NULL;
+      sub->on_unsubscribe = NULL;
+      fio_subscription_free(sub);
+    }
+    fio_ch_set_pop(channels);
+  }
+  fio_ch_set_free(channels);
+}
+
 #ifndef __MINGW32__
 static void fio_accept_after_fork(void *ignore) {
   /* prevent `accept` backlog in parent */
@@ -7657,38 +7676,9 @@ static void fio_cluster_at_exit(void *ignore) {
   /* unlock all */
   fio_pubsub_on_fork();
   /* clear subscriptions of all types */
-  while (fio_ch_set_count(&fio_postoffice.patterns.channels)) {
-    channel_s *ch = fio_ch_set_last(&fio_postoffice.patterns.channels);
-    while (fio_ls_embd_any(&ch->subscriptions)) {
-      subscription_s *sub =
-          FIO_LS_EMBD_OBJ(subscription_s, node, ch->subscriptions.next);
-      fio_unsubscribe(sub);
-    }
-    fio_ch_set_pop(&fio_postoffice.patterns.channels);
-  }
-
-  while (fio_ch_set_count(&fio_postoffice.pubsub.channels)) {
-    channel_s *ch = fio_ch_set_last(&fio_postoffice.pubsub.channels);
-    while (fio_ls_embd_any(&ch->subscriptions)) {
-      subscription_s *sub =
-          FIO_LS_EMBD_OBJ(subscription_s, node, ch->subscriptions.next);
-      fio_unsubscribe(sub);
-    }
-    fio_ch_set_pop(&fio_postoffice.pubsub.channels);
-  }
-
-  while (fio_ch_set_count(&fio_postoffice.filters.channels)) {
-    channel_s *ch = fio_ch_set_last(&fio_postoffice.filters.channels);
-    while (fio_ls_embd_any(&ch->subscriptions)) {
-      subscription_s *sub =
-          FIO_LS_EMBD_OBJ(subscription_s, node, ch->subscriptions.next);
-      fio_unsubscribe(sub);
-    }
-    fio_ch_set_pop(&fio_postoffice.filters.channels);
-  }
-  fio_ch_set_free(&fio_postoffice.filters.channels);
-  fio_ch_set_free(&fio_postoffice.patterns.channels);
-  fio_ch_set_free(&fio_postoffice.pubsub.channels);
+  fio_pubsub_at_exit_clear(&fio_postoffice.patterns.channels);
+  fio_pubsub_at_exit_clear(&fio_postoffice.pubsub.channels);
+  fio_pubsub_at_exit_clear(&fio_postoffice.filters.channels);
 
   /* clear engines */
   FIO_PUBSUB_DEFAULT = FIO_PUBSUB_CLUSTER;
@@ -12092,6 +12082,23 @@ FIO_FUNC void fio_pubsub_test(void) {
   ++expect;
   fio_defer_perform();
   FIO_ASSERT(counter == expect, "unsubscribe wasn't called for named channel!");
+
+  /* Regression #21: at-exit cleanup must terminate and empty the set, even
+   * with several subscriptions per channel or an already-marked one. */
+  fio_subscribe(.channel = {0, 9, "hang-test"}, .udata1 = &counter,
+                .on_message = fio_pubsub_test_on_message,
+                .on_unsubscribe = fio_pubsub_test_on_unsubscribe);
+  s = fio_subscribe(.channel = {0, 9, "hang-test"}, .udata1 = &counter,
+                    .on_message = fio_pubsub_test_on_message,
+                    .on_unsubscribe = fio_pubsub_test_on_unsubscribe);
+  FIO_ASSERT(s, "fio_subscribe FAILED for hang-test channel.");
+  fio_trylock(&s->unsubscribed);
+  fio_pubsub_at_exit_clear(&fio_postoffice.pubsub.channels);
+  FIO_ASSERT(!fio_ch_set_count(&fio_postoffice.pubsub.channels),
+             "at-exit cleanup left channels behind (#21)");
+  fio_defer_perform();
+  FIO_ASSERT(counter == expect, "at-exit cleanup shouldn't call callbacks!");
+
   fio_data->is_worker = 0;
   fio_data->active = 0;
   fio_data->workers = 0;
