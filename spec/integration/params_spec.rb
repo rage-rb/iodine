@@ -12,6 +12,17 @@ RSpec.describe Iodine::Rack::Utils do
       end
     end
 
+    context "with encoded and empty values" do
+      let(:q) { "name=caf%C3%A9&empty=&items[]" }
+
+      it "returns UTF-8 strings" do
+        expect(subject[:name]).to eq("caf\u00E9")
+        expect(subject[:name].encoding).to eq(Encoding::UTF_8)
+        expect(subject[:empty].encoding).to eq(Encoding::UTF_8)
+        expect(subject[:items].first.encoding).to eq(Encoding::UTF_8)
+      end
+    end
+
     context "with multiple plain params" do
       let(:q) { "name=ross&occupation=paleontologist" }
 
@@ -528,6 +539,17 @@ RSpec.describe Iodine::Rack::Utils do
       end
     end
 
+    context "with encoded and empty values" do
+      let(:q) { "name=caf%C3%A9&empty=&items[]" }
+
+      it "returns UTF-8 strings" do
+        expect(subject[:name]).to eq("caf\u00E9")
+        expect(subject[:name].encoding).to eq(Encoding::UTF_8)
+        expect(subject[:empty].encoding).to eq(Encoding::UTF_8)
+        expect(subject[:items].first.encoding).to eq(Encoding::UTF_8)
+      end
+    end
+
     context "with a query encoded as a single component" do
       let(:q) { "name%3Dross%26occupation%3Dpaleontologist" }
 
@@ -657,6 +679,8 @@ RSpec.describe Iodine::Rack::Utils do
       it "works correctly" do
         response = http_post("/", form: {
           count: 1,
+          message: "caf\u00E9",
+          empty: "",
           avatar: HTTP::FormData::File.new(file.path),
           "users[user][id]" => 11,
           "users[user][name]" => "ross",
@@ -668,6 +692,12 @@ RSpec.describe Iodine::Rack::Utils do
         parsed = response.parse
         expect(parsed["users"]).to eq({ "user" => { "id" => "11", "name" => "ross", "friends" => [{ "id" => "22", "name" => "chandler" }] } })
         expect(parsed["count"]).to eq("1")
+        expect(parsed["message"]).to eq("caf\u00E9")
+        expect(parsed["__encodings__"]).to include(
+          "count" => "UTF-8",
+          "message" => "UTF-8",
+          "empty" => "UTF-8"
+        )
         expect(parsed["avatar_digest"]).to eq("d41d8cd98f00b204e9800998ecf8427e")
       end
     end
@@ -726,6 +756,7 @@ RSpec.describe Iodine::Rack::Utils do
 
         expect(response.status.to_i).to eq(200)
         expect(response.parse["parameter"]).to eq(string)
+        expect(response.parse.dig("__encodings__", "parameter")).to eq("UTF-8")
       end
     end
 

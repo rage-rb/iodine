@@ -10,6 +10,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 **Fix**: Prevent process hang on exit caused by a use-after-free in pub/sub teardown (`fio_cluster_at_exit` read a channel freed by `fio_unsubscribe` of its last subscription; it now performs a bounded best-effort cleanup instead). See #21.
 
+#### Change log v.5.8.0 (2026-10-09)
+
+**Update**: Encode parameters as UTF-8
+
 #### Change log v.6.1.0 (2026-10-04)
 
 **Update**: Refactor parameters parsing

@@ -242,7 +242,7 @@ Convert query string into a Ruby object without recursion.
 */
 static VALUE build_query_component(char *str, size_t len,
                                     uint8_t should_decode) {
-  VALUE result = rb_str_new(str, len);
+  VALUE result = rb_enc_str_new(str, len, IodineUTF8Encoding);
   if (should_decode) {
     url_decode_inplace(Qnil, result);
   }
@@ -290,7 +290,7 @@ static VALUE parse_nested_query_internal(char *str, size_t len) {
                                      pair_end - separator - 1,
                                      value_should_decode);
     } else if (key_len > 1 && memchr(key_data + 1, '[', key_len - 1)) {
-      value = rb_str_new(NULL, 0);
+      value = rb_enc_str_new(NULL, 0, IodineUTF8Encoding);
     } else {
       value = Qnil;
     }

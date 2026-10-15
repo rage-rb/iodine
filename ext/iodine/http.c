@@ -68,6 +68,7 @@ static VALUE cUploadedFile;
 static ID create_id;
 static ID path_id;
 static rb_encoding *IodineBinaryEncoding;
+static rb_encoding *IodineUTF8Encoding;
 
 /* *****************************************************************************
 Small Helpers
@@ -2010,7 +2011,7 @@ static void http_mime_parser_on_data(http_mime_parser_s *parser, void *name,
                                      size_t value_len) {
   // for regular values - just add them to params
   if (!filename_len) {
-    VALUE r_value = rb_enc_str_new(value, value_len, IodineBinaryEncoding);
+    VALUE r_value = rb_enc_str_new(value, value_len, IodineUTF8Encoding);
     http_add_to_params(http_mime_parser2fio(parser)->params, name, name_len, r_value);
     return;
   }
@@ -2085,7 +2086,7 @@ static void http_mime_parser_on_partial_end(http_mime_parser_s *parser) {
 
   FIOBJ slice = fiobj_data_slice(fio_parser->h->body, fio_parser->partial_offset, fio_parser->partial_length);
   fio_str_info_s s_slice = fiobj_obj2cstr(slice);
-  VALUE r_value = rb_enc_str_new(s_slice.data, s_slice.len, IodineBinaryEncoding);
+  VALUE r_value = rb_enc_str_new(s_slice.data, s_slice.len, IodineUTF8Encoding);
   http_add_to_params(fio_parser->params, RSTRING_PTR(fio_parser->partial_name), RSTRING_LEN(fio_parser->partial_name), r_value);
 
   fio_parser->partial_name = Qnil;
@@ -2701,6 +2702,7 @@ void http_init(void) {
   path_id = rb_intern("path");
 
   IodineBinaryEncoding = rb_enc_find("binary");
+  IodineUTF8Encoding = rb_enc_find("UTF-8");
 }
 
 /* *****************************************************************************
