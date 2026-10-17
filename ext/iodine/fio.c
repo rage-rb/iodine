@@ -637,6 +637,72 @@ struct timespec fio_last_tick(void) {
   return fio_data->last_cycle;
 }
 
+/* *****************************************************************************
+Event Loop Utilization (ELU) metrics
+***************************************************************************** */
+
+/*  idle nanoseconds + monotonic start of the measurement window. */
+static uint64_t fio_elu_idle_acc = 0;
+static uint64_t fio_elu_window_start = 0;
+/* Disabled by default the reactor follows its original path when off. */
+static int fio_elu_enabled_flag = 0;
+
+/** Monotonic nanosecond timestamp (failures read as 0 and are skipped). */
+static uint64_t fio_elu_monotonic_ns(void) {
+  struct timespec ts;
+  
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
+    return 0;
+  }
+  
+  return ((uint64_t)ts.tv_sec * 1000000000UL) + (uint64_t)ts.tv_nsec;
+}
+
+/* public API.   */
+void fio_elu_enable(void) {
+  if (fio_elu_enabled_flag) {
+    return;
+  }
+  
+  fio_elu_idle_acc = 0;
+  fio_elu_window_start = fio_elu_monotonic_ns();
+  fio_elu_enabled_flag = 1;
+}
+
+/* public API. */
+int fio_elu_is_enabled(void) { return fio_elu_enabled_flag; }
+
+/* public API. */
+uint64_t fio_elu_idle_ns(void) {
+  return fio_atomic_add(&fio_elu_idle_acc, 0);
+}
+
+/* public API. */
+uint64_t fio_elu_elapsed_ns(void) {
+  uint64_t now;
+  
+  if (!fio_elu_enabled_flag) {
+    return 0;
+  }
+
+  now = fio_elu_monotonic_ns();
+  
+  if (!now || now < fio_elu_window_start) {
+    return 0;
+  }
+  
+  return now - fio_elu_window_start;
+}
+
+/** Adds a measured idle interval; skips clock failures and backward time. */
+static inline void fio_elu_add_idle(uint64_t t0, uint64_t t1) {
+  if (!t0 || !t1 || t1 < t0) {
+    return;
+  }
+
+  fio_atomic_add(&fio_elu_idle_acc, t1 - t0);
+}
+
 #define touchfd(fd) fd_data((fd)).active = fio_data->last_cycle.tv_sec
 
 /* public API. */
