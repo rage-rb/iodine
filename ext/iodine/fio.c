@@ -4681,6 +4681,14 @@ static fio_lock_i fio_accept_queue_lock;
 static void fio_on_fork(void) {
   fio_timer_lock = FIO_LOCK_INIT;
   fio_data->lock = FIO_LOCK_INIT;
+
+  /* ELU: the child inherits a copy restart with a fresh window. */
+  fio_elu_idle_acc = 0;
+
+  if (fio_elu_enabled_flag) {
+    fio_elu_window_start = fio_elu_monotonic_ns();
+  }
+
 #if defined(__linux__)
   /* a forked child may inherit the accept-queue lock while a parent thread
    * held it mid-walk; that thread won't exist in the child, so reset it. */
