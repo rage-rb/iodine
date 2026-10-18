@@ -2207,8 +2207,25 @@ static size_t fio_poll(void) {
   struct epoll_event internal[2];
   struct epoll_event events[FIO_POLL_MAX_EVENTS];
   int total = 0;
-  /* wait for events and handle them */
-  int internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+  int internal_count;
+
+  /* ELU: idle accounting only when the wait below is genuinely idle */
+  if (fio_elu_enabled_flag && timeout_millisec > 0) {
+    internal_count = epoll_wait(evio_fd[0], internal, 2, 0);
+
+    if (internal_count == 0) {
+      uint64_t t0 = fio_elu_monotonic_ns();
+      internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else if (internal_count < 0) {
+      internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+    }
+  } else {
+    /* wait for events and handle them */
+    internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+  }
+
   if (internal_count == 0)
     return internal_count;
   for (int j = 0; j < internal_count; ++j) {
