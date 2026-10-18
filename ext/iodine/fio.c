@@ -2415,9 +2415,26 @@ static size_t fio_poll(void) {
   const struct timespec timeout = {
       .tv_sec = (timeout_millisec / 1000),
       .tv_nsec = ((timeout_millisec % 1000) * 1000000)};
-  /* wait for events and handle them */
-  int active_count =
-      kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+
+  int active_count;
+
+  /* ELU: idle accounting only when the wait below is genuinely idle */
+  if (fio_elu_enabled_flag && timeout_millisec > 0) {
+    const struct timespec zero_timeout = {.tv_sec = 0, .tv_nsec = 0};
+    active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &zero_timeout);
+    
+    if (active_count == 0) {
+      uint64_t t0 = fio_elu_monotonic_ns();
+      active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else if (active_count < 0) {
+      active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+    }
+  } else {
+    /* wait for events and handle them */
+    active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+  }
 
   if (active_count > 0) {
     for (int i = 0; i < active_count; i++) {
