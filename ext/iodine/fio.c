@@ -2591,7 +2591,31 @@ static size_t fio_poll(void) {
   size_t count = 0;
 
   if (start == end) {
-    fio_throttle_thread((timeout * 1000000UL));
+    if (fio_elu_enabled_flag && timeout > 0) {
+      /* no fds: throttling instead of polling still counts as waiting. */
+      uint64_t t0 = fio_elu_monotonic_ns();
+
+      fio_throttle_thread((timeout * 1000000UL));
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else {
+      fio_throttle_thread((timeout * 1000000UL));
+    }
+  } else if (fio_elu_enabled_flag && timeout > 0) {
+    /* ELU: idle accounting only when the wait below is genuinely idle */
+    int probe = poll(list + start, end - start, 0);
+
+    if (probe == 0) {
+      uint64_t t0 = fio_elu_monotonic_ns();
+      probe = poll(list + start, end - start, timeout);
+
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else if (probe < 0) {
+      probe = poll(list + start, end - start, timeout);
+    }
+
+    if (probe == -1) {
+      goto finish;
+    }
   } else if (poll(list + start, end - start, timeout) == -1) {
     goto finish;
   }
