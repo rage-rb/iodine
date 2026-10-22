@@ -146,6 +146,7 @@ static VALUE rio_read(int argc, VALUE *argv, VALUE self) {
     } else {
       // make sure the buffer is binary encoded.
       rb_enc_associate(buffer, IodineBinaryEncoding);
+      rb_str_modify(buffer);
       if (rb_str_capacity(buffer) < (size_t)buf.len)
         rb_str_resize(buffer, buf.len);
       memcpy(RSTRING_PTR(buffer), buf.data, buf.len);
