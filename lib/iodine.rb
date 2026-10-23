@@ -250,6 +250,44 @@ if(!defined?(before_fork))
   end
 end
 
+#############
+## Event loop utilization convenience over the raw Perf counters
+
+module Iodine
+  module Perf
+    # This returns a rolling "how busy was the event loop?" number for the
+    # time since the previous call (sample about once a second). The first
+    # call only saves the starting point and returns 0.0. If a counter ever
+    # goes down (after a fork or a broken clock), the window is broken, so
+    # it returns nil once and works normally again on the next call.
+    #
+    # Returns nil when tracking is off. Otherwise a number between 0.0 (loop
+    # idle the whole time) and 1.0 (loop busy the whole time) for the time
+    # since the previous call.
+    @last_sample = nil
+    def self.event_loop_utilization
+      idle, elapsed = elu_idle_time_ns, elu_elapsed_ns
+      return nil if idle.nil?
+
+      if @last_sample.nil?
+        @last_sample = [idle, elapsed]
+        return 0.0
+      end
+
+      diff_idle = idle - @last_sample[0]
+      diff_elapsed = elapsed - @last_sample[1]
+      @last_sample = [idle, elapsed]
+
+      # Counter moved backwards (fork restart or clock failure): the window
+      # can't be measured. The saved values above now point to the current
+      # moment, so the next call starts clean.
+      return nil if diff_idle < 0 || diff_elapsed <= 0
+
+      1.0 - diff_idle.to_f / diff_elapsed
+    end
+  end
+end
+
 
 #############
 ## At end of loading
