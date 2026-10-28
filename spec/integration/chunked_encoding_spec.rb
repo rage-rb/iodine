@@ -47,6 +47,13 @@ RSpec.describe 'Transfer-Encoding: chunked', with_app: :echo do
     include_examples 'chunked body'
   end
 
+  context 'when the body size is larger that HTTP_MAX_HEADER_LENGTH and chunked' do
+    let(:headers) { Hash['Transfer-Encoding' => 'chunked'] }
+    let(:body_size) { 8192 + 1 }
+
+    include_examples 'chunked body'
+  end
+
   context 'when the body size is long and unevenly chunked' do
     let(:headers) { Hash['Transfer-Encoding' => 'chunked'] }
     let(:body_size) { 0x4001 }

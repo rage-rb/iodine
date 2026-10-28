@@ -656,15 +656,27 @@ static int http1_on_body_chunk(http1_parser_s *parser, char *data,
     http_send_error(&http1_pr2handle(parser2http(parser)), 413);
     return -1; /* test every time, in case of chunked data */
   }
+  FIOBJ *body = &http1_pr2handle(parser2http(parser)).body;
   if (!parser->state.read) {
-    if (parser->state.content_length > 0 &&
-        parser->state.content_length <= HTTP_MAX_HEADER_LENGTH) {
-      http1_pr2handle(parser2http(parser)).body = fiobj_data_newstr();
-    } else {
-      http1_pr2handle(parser2http(parser)).body = fiobj_data_newtmpfile();
-    }
+    *body = fiobj_data_newstr();
   }
-  fiobj_data_write(http1_pr2handle(parser2http(parser)).body, data, data_len);
+  /* Switch to a tmpfile once the body outgrows the threshold */
+  intptr_t len = fiobj_data_len(*body);
+  if (len <= HTTP_MAX_HEADER_LENGTH &&
+      len + (intptr_t)data_len > HTTP_MAX_HEADER_LENGTH) {
+    FIOBJ file = fiobj_data_newtmpfile();
+    if (!file) {
+      http_send_error(&http1_pr2handle(parser2http(parser)), 500);
+      return -1;
+    }
+    if (len) {
+      fio_str_info_s mem = fiobj_obj2cstr(*body);
+      fiobj_data_write(file, mem.data, mem.len);
+    }
+    fiobj_free(*body);
+    *body = file;
+  }
+  fiobj_data_write(*body, data, data_len);
   return 0;
 }
 
