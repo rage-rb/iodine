@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.6.4.0 (2026-10-29)
+
+**Update**: Avoid disk writes for small chunked request bodies.
+
 #### Change log v.6.3.0 (2026-10-23)
 
 **Fix**: Fix `rack.input` buffer coderange
