@@ -637,6 +637,72 @@ struct timespec fio_last_tick(void) {
   return fio_data->last_cycle;
 }
 
+/* *****************************************************************************
+Event Loop Utilization (ELU) metrics
+***************************************************************************** */
+
+/*  idle nanoseconds + monotonic start of the measurement window. */
+static uint64_t fio_elu_idle_acc = 0;
+static uint64_t fio_elu_window_start = 0;
+/* Disabled by default the reactor follows its original path when off. */
+static int fio_elu_enabled_flag = 0;
+
+/** Monotonic nanosecond timestamp (failures read as 0 and are skipped). */
+static uint64_t fio_elu_monotonic_ns(void) {
+  struct timespec ts;
+  
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
+    return 0;
+  }
+  
+  return ((uint64_t)ts.tv_sec * 1000000000UL) + (uint64_t)ts.tv_nsec;
+}
+
+/* public API.   */
+void fio_elu_enable(void) {
+  if (fio_elu_enabled_flag) {
+    return;
+  }
+  
+  fio_elu_idle_acc = 0;
+  fio_elu_window_start = fio_elu_monotonic_ns();
+  fio_elu_enabled_flag = 1;
+}
+
+/* public API. */
+int fio_elu_is_enabled(void) { return fio_elu_enabled_flag; }
+
+/* public API. */
+uint64_t fio_elu_idle_ns(void) {
+  return fio_atomic_add(&fio_elu_idle_acc, 0);
+}
+
+/* public API. */
+uint64_t fio_elu_elapsed_ns(void) {
+  uint64_t now;
+  
+  if (!fio_elu_enabled_flag) {
+    return 0;
+  }
+
+  now = fio_elu_monotonic_ns();
+  
+  if (!now || now < fio_elu_window_start) {
+    return 0;
+  }
+  
+  return now - fio_elu_window_start;
+}
+
+/** Adds a measured idle interval; skips clock failures and backward time. */
+static inline void fio_elu_add_idle(uint64_t t0, uint64_t t1) {
+  if (!t0 || !t1 || t1 < t0) {
+    return;
+  }
+
+  fio_atomic_add(&fio_elu_idle_acc, t1 - t0);
+}
+
 #define touchfd(fd) fd_data((fd)).active = fio_data->last_cycle.tv_sec
 
 /* public API. */
@@ -2141,8 +2207,25 @@ static size_t fio_poll(void) {
   struct epoll_event internal[2];
   struct epoll_event events[FIO_POLL_MAX_EVENTS];
   int total = 0;
-  /* wait for events and handle them */
-  int internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+  int internal_count;
+
+  /* ELU: idle accounting only when the wait below is genuinely idle */
+  if (fio_elu_enabled_flag && timeout_millisec > 0) {
+    internal_count = epoll_wait(evio_fd[0], internal, 2, 0);
+
+    if (internal_count == 0) {
+      uint64_t t0 = fio_elu_monotonic_ns();
+      internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else if (internal_count < 0) {
+      internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+    }
+  } else {
+    /* wait for events and handle them */
+    internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+  }
+
   if (internal_count == 0)
     return internal_count;
   for (int j = 0; j < internal_count; ++j) {
@@ -2332,9 +2415,26 @@ static size_t fio_poll(void) {
   const struct timespec timeout = {
       .tv_sec = (timeout_millisec / 1000),
       .tv_nsec = ((timeout_millisec % 1000) * 1000000)};
-  /* wait for events and handle them */
-  int active_count =
-      kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+
+  int active_count;
+
+  /* ELU: idle accounting only when the wait below is genuinely idle */
+  if (fio_elu_enabled_flag && timeout_millisec > 0) {
+    const struct timespec zero_timeout = {.tv_sec = 0, .tv_nsec = 0};
+    active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &zero_timeout);
+    
+    if (active_count == 0) {
+      uint64_t t0 = fio_elu_monotonic_ns();
+      active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else if (active_count < 0) {
+      active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+    }
+  } else {
+    /* wait for events and handle them */
+    active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+  }
 
   if (active_count > 0) {
     for (int i = 0; i < active_count; i++) {
@@ -2491,7 +2591,31 @@ static size_t fio_poll(void) {
   size_t count = 0;
 
   if (start == end) {
-    fio_throttle_thread((timeout * 1000000UL));
+    if (fio_elu_enabled_flag && timeout > 0) {
+      /* no fds: throttling instead of polling still counts as waiting. */
+      uint64_t t0 = fio_elu_monotonic_ns();
+
+      fio_throttle_thread((timeout * 1000000UL));
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else {
+      fio_throttle_thread((timeout * 1000000UL));
+    }
+  } else if (fio_elu_enabled_flag && timeout > 0) {
+    /* ELU: idle accounting only when the wait below is genuinely idle */
+    int probe = poll(list + start, end - start, 0);
+
+    if (probe == 0) {
+      uint64_t t0 = fio_elu_monotonic_ns();
+      probe = poll(list + start, end - start, timeout);
+
+      fio_elu_add_idle(t0, fio_elu_monotonic_ns());
+    } else if (probe < 0) {
+      probe = poll(list + start, end - start, timeout);
+    }
+
+    if (probe == -1) {
+      goto finish;
+    }
   } else if (poll(list + start, end - start, timeout) == -1) {
     goto finish;
   }
@@ -4557,6 +4681,14 @@ static fio_lock_i fio_accept_queue_lock;
 static void fio_on_fork(void) {
   fio_timer_lock = FIO_LOCK_INIT;
   fio_data->lock = FIO_LOCK_INIT;
+
+  /* ELU: the child inherits a copy restart with a fresh window. */
+  fio_elu_idle_acc = 0;
+
+  if (fio_elu_enabled_flag) {
+    fio_elu_window_start = fio_elu_monotonic_ns();
+  }
+
 #if defined(__linux__)
   /* a forked child may inherit the accept-queue lock while a parent thread
    * held it mid-walk; that thread won't exist in the child, so reset it. */
