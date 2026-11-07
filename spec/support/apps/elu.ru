@@ -7,12 +7,10 @@ sleep 0.6
 
 run(->(env) do
   case env["PATH_INFO"]
-  when "/idle"
+  when "/snapshot"
+    idle, elapsed = Iodine::Perf.elu_snapshot
     [200, { "Content-Type" => "text/plain" },
-     [Iodine::Perf.elu_idle_time_ns.to_s]]
-  when "/elapsed"
-    [200, { "Content-Type" => "text/plain" },
-     [Iodine::Perf.elu_elapsed_ns.to_s]]
+     ["#{idle} #{elapsed}"]]
   when "/block"
     # Block the reactor : this is active time, not provider idle time.
     sleep 0.3

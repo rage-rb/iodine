@@ -55,7 +55,7 @@ RSpec.describe "Event loop utilization" do
   end
 
   def elu_sample(port)
-    [get(port, "/idle").body.to_s.to_i, get(port, "/elapsed").body.to_s.to_i]
+    get(port, "/snapshot").body.to_s.split.map(&:to_i)
   end
 
   it "accumulates idle while the loop waits" do
@@ -85,7 +85,7 @@ RSpec.describe "Event loop utilization" do
     end
   end
 
-  it "serves traffic with the probe enabled and stays consistent" do
+  it "serves traffic with ELU enabled and stays consistent" do
     with_elu_server(workers: 1) do |port|
       20.times do
         expect(get(port, "/").body.to_s).to eq("ok")
@@ -102,7 +102,7 @@ RSpec.describe "Event loop utilization" do
 
   it "restarts the window in forked workers" do
     with_elu_server(workers: 2) do |port|
-      readings = 6.times.map { get(port, "/elapsed").body.to_s.to_i }
+      readings = 6.times.map { elu_sample(port)[1] }
       # The parent window aged 0.6s before forking; fresh worker windows
       # read milliseconds. Without a reset every reading would be >= 0.6s.
       expect(readings).to all(be > 0)
