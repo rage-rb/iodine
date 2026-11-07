@@ -36,34 +36,23 @@ static VALUE iodine_perf_elu_enable_idle_time(VALUE self) {
 }
 
 /**
- * Iodine::Perf.elu_idle_time_ns
+ * Iodine::Perf.elu_snapshot
  *
- * ELU: cumulative nanoseconds genuinely spent waiting inside the event
- * provider.
+ * Reads both ELU counters at a single point in time, so that idle and
+ * elapsed always belong to the same instant.
  *
- * Returns nil unless ELU tracking was enabled; otherwise an increasing
- * Integer nanoseconds count.
+ * Returns nil unless ELU tracking was enabled; otherwise
+ * [idle_time_ns, elapsed_ns], both increasing Integer counts.
  */
-static VALUE iodine_perf_elu_idle_time_ns(VALUE self) {
-  (void)self;
-  if (!fio_elu_is_enabled()) {
-    return Qnil;
-  }
-  return ULL2NUM(fio_elu_idle_ns());
-}
+static VALUE iodine_perf_elu_snapshot(VALUE self) {
+  uint64_t idle_time, elapsed_time;
 
-/**
- * Iodine::Perf.elu_elapsed_ns
- *
- * ELU: elapsed nanoseconds since tracking was enabled (same window as idle).
- * Returns nil unless ELU tracking was enabled.
- */
-static VALUE iodine_perf_elu_elapsed_ns(VALUE self) {
   (void)self;
   if (!fio_elu_is_enabled()) {
     return Qnil;
   }
-  return ULL2NUM(fio_elu_elapsed_ns());
+  fio_elu_snapshot(&idle_time, &elapsed_time);
+  return rb_ary_new_from_args(2, ULL2NUM(idle_time), ULL2NUM(elapsed_time));
 }
 
 void iodine_perf_initialize(void) {
@@ -73,8 +62,6 @@ void iodine_perf_initialize(void) {
   /* The ELU (event loop utilization) group. */
   rb_define_module_function(IodinePerfModule, "elu_enable_idle_time!",
                             iodine_perf_elu_enable_idle_time, 0);
-  rb_define_module_function(IodinePerfModule, "elu_idle_time_ns",
-                            iodine_perf_elu_idle_time_ns, 0);
-  rb_define_module_function(IodinePerfModule, "elu_elapsed_ns",
-                            iodine_perf_elu_elapsed_ns, 0);
+  rb_define_module_function(IodinePerfModule, "elu_snapshot",
+                            iodine_perf_elu_snapshot, 0);
 }
