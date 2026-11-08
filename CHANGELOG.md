@@ -6,6 +6,10 @@ Please notice that this change log contains changes for upcoming releases as wel
 
 ## Changes:
 
+#### Change log v.7.0.0 (2026-11-08)
+
+**Update**: Add API for measuring event loop utilization (ELU).
+
 #### Change log v.6.4.0 (2026-10-29)
 
 **Update**: Avoid disk writes for small chunked request bodies.
