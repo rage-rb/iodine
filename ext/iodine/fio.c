@@ -637,6 +637,130 @@ struct timespec fio_last_tick(void) {
   return fio_data->last_cycle;
 }
 
+/* *****************************************************************************
+Event Loop Utilization (ELU) metrics
+***************************************************************************** */
+
+/*  idle nanoseconds + monotonic start of the measurement window. */
+static uint64_t fio_elu_idle_acc = 0;
+static uint64_t fio_elu_window_start = 0;
+/*
+ * Entry time of a wait (epoll, kqueue, poll) in progress.
+ * The reactor stamps it before a genuinely blocking wait and moves the
+ * measured interval into the accumulator when the wait exits. Keeping the
+ * in-progress interval out of the accumulator lets readers fold it in
+ * continuously, so a read never misses waiting time.
+ */
+static uint64_t fio_elu_entry_time = 0;
+/* guards fio_acc_idle_acc + fio_elu_entry_time against readers from other threads. */
+static fio_lock_i fio_elu_lock = FIO_LOCK_INIT;
+/* Disabled by default the reactor follows its original path when off. */
+static int fio_elu_enabled_flag = 0;
+
+/** Monotonic nanosecond timestamp (failures read as 0 and are skipped). */
+static uint64_t fio_elu_monotonic_ns(void) {
+  struct timespec ts;
+  
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) == -1) {
+    return 0;
+  }
+  
+  return ((uint64_t)ts.tv_sec * 1000000000UL) + (uint64_t)ts.tv_nsec;
+}
+
+/* public API.   */
+void fio_elu_enable(void) {
+  if (fio_elu_enabled_flag) {
+    return;
+  }
+
+  fio_lock(&fio_elu_lock);
+  fio_elu_idle_acc = 0;
+  fio_elu_entry_time = 0;
+  fio_unlock(&fio_elu_lock);
+  fio_elu_window_start = fio_elu_monotonic_ns();
+  fio_elu_enabled_flag = 1;
+}
+
+/* public API. */
+int fio_elu_is_enabled(void) { return fio_elu_enabled_flag; }
+
+/* public API. */
+void fio_elu_snapshot(uint64_t *idle_out, uint64_t *elapsed_out) {
+  uint64_t idle_time = 0;
+  uint64_t entry_time = 0;
+  uint64_t now = 0;
+  uint64_t elapsed = 0;
+
+  if (fio_elu_enabled_flag) {
+    fio_lock(&fio_elu_lock);
+    idle_time = fio_elu_idle_acc;
+    entry_time = fio_elu_entry_time;
+    fio_unlock(&fio_elu_lock);
+
+    /* one reading binds both counters to the same instant. */
+    now = fio_elu_monotonic_ns();
+
+    /* a wait in progress counts as idle for its elapsed so far. */
+    if (entry_time && now > entry_time) {
+      idle_time += now - entry_time;
+    }
+
+    /* elapsed, same window as idle. */
+    if (now && now > fio_elu_window_start) {
+      elapsed = now - fio_elu_window_start;
+    }
+  }
+  *idle_out = idle_time;
+  *elapsed_out = elapsed;
+}
+
+/**
+ * Stamps the entry time before a genuinely blocking wait (nonzero timeout).
+ * A reader may run on another thread, so the stamp is written under the
+ * lock, like every other access to it.
+ */
+static inline void fio_elu_poll_enter(void) {
+  uint64_t entry_time;
+
+  if (!fio_elu_enabled_flag) {
+    return;
+  }
+
+  entry_time = fio_elu_monotonic_ns();
+  if (!entry_time) {
+    return;
+  }
+
+  fio_lock(&fio_elu_lock);
+  fio_elu_entry_time = entry_time;
+  fio_unlock(&fio_elu_lock);
+}
+
+/**
+ * A wait just finished: move the measured interval into the accumulator and
+ * clear the entry stamp under the lock, so that readers always observe the
+ * pair (idle, entry) consistently. The exit timestamp is captured before the
+ * lock: contention here is overhead, not event provider waiting, and must
+ * not inflate the measured idle interval.
+ */
+static inline void fio_elu_poll_exit(void) {
+  uint64_t exit_time, entry_time;
+
+  if (!fio_elu_enabled_flag) {
+    return;
+  }
+
+  exit_time = fio_elu_monotonic_ns();
+  fio_lock(&fio_elu_lock);
+  entry_time = fio_elu_entry_time;
+  fio_elu_entry_time = 0;
+  if (entry_time && exit_time > entry_time) {
+    fio_elu_idle_acc += exit_time - entry_time;
+  }
+  fio_unlock(&fio_elu_lock);
+}
+
 #define touchfd(fd) fd_data((fd)).active = fio_data->last_cycle.tv_sec
 
 /* public API. */
@@ -2141,8 +2265,20 @@ static size_t fio_poll(void) {
   struct epoll_event internal[2];
   struct epoll_event events[FIO_POLL_MAX_EVENTS];
   int total = 0;
+  int internal_count;
+
+  /* ELU: a blocking wait with a timeout counts as idle; a zero-timeout wait
+   * or a disabled ELU follows the original path untouched. */
+  int elu_measure = fio_elu_enabled_flag && timeout_millisec > 0;
+  if (elu_measure) {
+    fio_elu_poll_enter();
+  }
   /* wait for events and handle them */
-  int internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+  internal_count = epoll_wait(evio_fd[0], internal, 2, timeout_millisec);
+  if (elu_measure) {
+    fio_elu_poll_exit();
+  }
+
   if (internal_count == 0)
     return internal_count;
   for (int j = 0; j < internal_count; ++j) {
@@ -2332,9 +2468,20 @@ static size_t fio_poll(void) {
   const struct timespec timeout = {
       .tv_sec = (timeout_millisec / 1000),
       .tv_nsec = ((timeout_millisec % 1000) * 1000000)};
+
+  int active_count;
+
+  /* ELU: a blocking wait with a timeout counts as idle; a zero-timeout wait
+   * or a disabled ELU follows the original path untouched. */
+  int elu_measure = fio_elu_enabled_flag && timeout_millisec > 0;
+  if (elu_measure) {
+    fio_elu_poll_enter();
+  }
   /* wait for events and handle them */
-  int active_count =
-      kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+  active_count = kevent(evio_fd, NULL, 0, events, FIO_POLL_MAX_EVENTS, &timeout);
+  if (elu_measure) {
+    fio_elu_poll_exit();
+  }
 
   if (active_count > 0) {
     for (int i = 0; i < active_count; i++) {
@@ -2490,10 +2637,27 @@ static size_t fio_poll(void) {
   int timeout = fio_timer_calc_first_interval();
   size_t count = 0;
 
+  int elu_measure = fio_elu_enabled_flag && timeout > 0;
   if (start == end) {
+    /* no sockets: throttling instead of polling still counts as waiting. */
+    if (elu_measure) {
+      fio_elu_poll_enter();
+    }
     fio_throttle_thread((timeout * 1000000UL));
-  } else if (poll(list + start, end - start, timeout) == -1) {
-    goto finish;
+    if (elu_measure) {
+      fio_elu_poll_exit();
+    }
+  } else {
+    if (elu_measure) {
+      fio_elu_poll_enter();
+    }
+    int polled = poll(list + start, end - start, timeout);
+    if (elu_measure) {
+      fio_elu_poll_exit();
+    }
+    if (polled == -1) {
+      goto finish;
+    }
   }
   for (size_t i = start; i < end; ++i) {
     if (list[i].revents) {
@@ -4557,6 +4721,17 @@ static fio_lock_i fio_accept_queue_lock;
 static void fio_on_fork(void) {
   fio_timer_lock = FIO_LOCK_INIT;
   fio_data->lock = FIO_LOCK_INIT;
+
+  /* ELU: the child inherits a copy restart with a fresh window. A parent
+   * thread may have held the lock mid-transfer, so reset it like the others. */
+  fio_elu_lock = FIO_LOCK_INIT;
+  fio_elu_idle_acc = 0;
+  fio_elu_entry_time = 0;
+
+  if (fio_elu_enabled_flag) {
+    fio_elu_window_start = fio_elu_monotonic_ns();
+  }
+
 #if defined(__linux__)
   /* a forked child may inherit the accept-queue lock while a parent thread
    * held it mid-walk; that thread won't exist in the child, so reset it. */

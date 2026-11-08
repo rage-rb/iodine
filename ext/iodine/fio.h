@@ -1069,6 +1069,31 @@ void fio_signal_handler_reset(void);
 struct timespec fio_last_tick(void);
 
 /**
+ * Enables event-loop utilization (ELU) tracking.
+ *
+ * Off by default; calling this more than once does nothing.
+ * Counters start measuring from this moment. Forked workers
+ * start fresh on their own (see `fio_on_fork`).
+ */
+void fio_elu_enable(void);
+
+/** Returns non-zero once ELU tracking was enabled. */
+int fio_elu_is_enabled(void);
+
+/**
+ * Reads both ELU counters at a single point in time, so idle and elapsed
+ * always belong to the same instant.
+ *
+ * Thread-safe to read from any thread: a wait in progress is included as a
+ * measure in the reader, instead of being added all at once after the wait
+ * completes.
+ * Returns 0s unless enabled.
+ *
+ * ELU over an interval is `1 - Δidle / Δelapsed`.
+ */
+void fio_elu_snapshot(uint64_t *idle_ns, uint64_t *elapsed_ns);
+
+/**
  * Returns a C string detailing the IO engine selected during compilation.
  *
  * Valid values are "kqueue", "epoll" and "poll".

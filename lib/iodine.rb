@@ -250,7 +250,6 @@ if(!defined?(before_fork))
   end
 end
 
-
 #############
 ## At end of loading
 

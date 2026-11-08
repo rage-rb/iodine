@@ -13,6 +13,19 @@ RSpec.describe Iodine::Perf do
       port
     end
 
+    # on_start can fire a moment before the listener starts accepting on a
+    # fresh port, so connecting may be refused once; retry briefly.
+    def connect(port)
+      30.times do
+        begin
+          return TCPSocket.new("127.0.0.1", port)
+        rescue Errno::ECONNREFUSED
+          sleep 0.1
+        end
+      end
+      TCPSocket.new("127.0.0.1", port) # raise the last error
+    end
+
     it 'returns an Integer' do
       linux_only
       expect(Iodine::Perf.queued_connections).to be_a(Integer)
@@ -38,7 +51,7 @@ RSpec.describe Iodine::Perf do
       result = nil
       Iodine.workers = 1
       Iodine.on_state(:on_start) do
-        t = Thread.new { 5.times.map { TCPSocket.new("127.0.0.1", port) } }
+        t = Thread.new { 5.times.map { connect(port) } }
         socks = t.value
         Iodine.run { result = Iodine::Perf.queued_connections }
         socks.each(&:close)
@@ -57,7 +70,7 @@ RSpec.describe Iodine::Perf do
       result = nil
       Iodine.workers = 1
       Iodine.on_state(:on_start) do
-        t = Thread.new { 5.times.map { TCPSocket.new("127.0.0.1", raw_port) } }
+        t = Thread.new { 5.times.map { connect(raw_port) } }
         socks = t.value
         Iodine.run { result = Iodine::Perf.queued_connections }
         socks.each(&:close)
@@ -76,8 +89,8 @@ RSpec.describe Iodine::Perf do
       result = nil
       Iodine.workers = 1
       Iodine.on_state(:on_start) do
-        t1 = Thread.new { 3.times.map { TCPSocket.new("127.0.0.1", port1) } }
-        t2 = Thread.new { 2.times.map { TCPSocket.new("127.0.0.1", port2) } }
+        t1 = Thread.new { 3.times.map { connect(port1) } }
+        t2 = Thread.new { 2.times.map { connect(port2) } }
         s1, s2 = t1.value, t2.value
         Iodine.run { result = Iodine::Perf.queued_connections }
         s1.each(&:close)
