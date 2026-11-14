@@ -24,7 +24,8 @@ Fiber Scheduler API
 ***************************************************************************** */
 
 static void noop(intptr_t uuid, fio_protocol_s *protocol) {
-  (void)uuid;
+  /* Scheduler watches are one-shot, including unwanted read events. */
+  fio_suspend(uuid);
   (void)protocol;
 }
 
@@ -50,6 +51,9 @@ static void iodine_scheduler_task_close(intptr_t uuid, fio_protocol_s *fio_proto
 
 static void iodine_scheduler_task_perform(intptr_t uuid, fio_protocol_s *fio_protocol) {
   scheduler_protocol_s *protocol = (scheduler_protocol_s *)fio_protocol;
+
+  /* Suspend before resuming Ruby: it may immediately attach the next wait. */
+  fio_suspend(uuid);
 
   if (!protocol->fulfilled) {
     IodineCaller.call(protocol->block, call_id);
